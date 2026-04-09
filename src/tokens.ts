@@ -1,42 +1,40 @@
-// Token types for Prism language
 export enum TokenType {
-  // Keywords
-  FUNCTION = 'FUNCTION',
-  NEW = 'NEW',
-  PUBLIC = 'PUBLIC',
-  PRIVATE = 'PRIVATE',
+  // === PRISM KEYWORDS ===
+  FN = 'FN',           // function declaration
+  FINAL = 'FINAL',     // immutable variable (replaces const)
+  MUT = 'MUT',         // mutable variable (replaces let)
   CLASS = 'CLASS',
+  PUB = 'PUB',         // public visibility
+  PRIV = 'PRIV',       // private visibility
   IF = 'IF',
   ELSE = 'ELSE',
-  MATCH = 'MATCH',
-  RETURN = 'RETURN',
+  MATCH = 'MATCH',     // pattern matching (switch)
+  SHINE = 'SHINE',     // return (light shines through a prism)
+  SHATTER = 'SHATTER', // throw (prisms shatter when dropped)
+  FOR = 'FOR',
+  IN = 'IN',
+  WHILE = 'WHILE',
+  USE = 'USE',         // import
+  FROM = 'FROM',
+  NEW = 'NEW',
   TRUE = 'TRUE',
   FALSE = 'FALSE',
   NULL = 'NULL',
-  MUT = 'MUT',
-  LET = 'LET',
-  USE = 'USE',
-  THROW = 'THROW',
-  FROM = 'FROM',
-  WHILE = 'WHILE',
-  FOR = 'FOR',
-  IN = 'IN',
 
-  // Types
+  // === TYPES ===
   STRING = 'STRING',
-  NUMBER = 'NUMBER',
-  BOOLEAN = 'BOOLEAN',
-  VOID = 'VOID',
   INT = 'INT',
+  FLOAT = 'FLOAT',
   BOOL = 'BOOL',
+  VOID = 'VOID',
   ANY = 'ANY',
 
-  // Identifiers & literals
+  // === IDENTIFIERS & LITERALS ===
   IDENTIFIER = 'IDENTIFIER',
   STRING_LITERAL = 'STRING_LITERAL',
   NUMBER_LITERAL = 'NUMBER_LITERAL',
 
-  // Operators
+  // === OPERATORS ===
   EQUALS = 'EQUALS',
   PLUS = 'PLUS',
   MINUS = 'MINUS',
@@ -48,12 +46,14 @@ export enum TokenType {
   LT = 'LT',
   GTE = 'GTE',
   LTE = 'LTE',
-  ARROW = 'ARROW',
-  FAT_ARROW = 'FAT_ARROW',
-  QUESTION = 'QUESTION',
-  NULLISH = 'NULLISH',
+  BANG = 'BANG',
+  AND = 'AND',
+  OR = 'OR',
+  ARROW = 'ARROW',       // ->
+  FAT_ARROW = 'FAT_ARROW', // =>
+  NULLISH = 'NULLISH',  // ??
 
-  // Punctuators
+  // === PUNCTUATORS ===
   LPAREN = 'LPAREN',
   RPAREN = 'RPAREN',
   LBRACE = 'LBRACE',
@@ -65,9 +65,8 @@ export enum TokenType {
   COLON = 'COLON',
   SEMICOLON = 'SEMICOLON',
 
-  // Special
+  // === SPECIAL ===
   EOF = 'EOF',
-  COMMENT = 'COMMENT',
 }
 
 export interface Token {
@@ -77,7 +76,8 @@ export interface Token {
   column: number;
 }
 
-// AST Node types
+// AST Node Types
+
 export type ASTNode =
   | Program
   | VariableDeclaration
@@ -85,6 +85,8 @@ export type ASTNode =
   | ClassDeclaration
   | MethodDeclaration
   | CallExpression
+  | MethodCall
+  | NewExpression
   | Identifier
   | StringLiteral
   | NumberLiteral
@@ -92,12 +94,14 @@ export type ASTNode =
   | NullLiteral
   | BinaryExpression
   | UnaryExpression
+  | Assignment
   | IfStatement
   | MatchStatement
   | ReturnStatement
   | ExpressionStatement
   | ImportDeclaration
   | PropertyAccess
+  | IndexAccess
   | ArrayExpression
   | ObjectExpression
   | ThrowStatement
@@ -129,7 +133,14 @@ export interface ClassDeclaration {
   type: 'ClassDeclaration';
   name: string;
   methods: MethodDeclaration[];
-  properties: { name: string; typeAnnotation?: string; visibility: 'public' | 'private' }[];
+  properties: ClassProperty[];
+}
+
+export interface ClassProperty {
+  name: string;
+  typeAnnotation?: string;
+  visibility: 'pub' | 'priv';
+  initializer?: ASTNode;
 }
 
 export interface MethodDeclaration {
@@ -137,13 +148,26 @@ export interface MethodDeclaration {
   name: string;
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
-  visibility: 'public' | 'private';
+  visibility: 'pub' | 'priv';
   body: ASTNode[];
 }
 
 export interface CallExpression {
   type: 'CallExpression';
   callee: string;
+  args: ASTNode[];
+}
+
+export interface MethodCall {
+  type: 'MethodCall';
+  object: ASTNode;
+  method: string;
+  args: ASTNode[];
+}
+
+export interface NewExpression {
+  type: 'NewExpression';
+  className: string;
   args: ASTNode[];
 }
 
@@ -185,6 +209,12 @@ export interface UnaryExpression {
   operand: ASTNode;
 }
 
+export interface Assignment {
+  type: 'Assignment';
+  target: ASTNode;
+  value: ASTNode;
+}
+
 export interface IfStatement {
   type: 'IfStatement';
   condition: ASTNode;
@@ -193,7 +223,7 @@ export interface IfStatement {
 }
 
 export interface MatchCase {
-  pattern: string | number | 'default';
+  pattern: string | number | boolean | 'default';
   body: ASTNode[];
 }
 
@@ -224,6 +254,12 @@ export interface PropertyAccess {
   type: 'PropertyAccess';
   object: ASTNode;
   property: string;
+}
+
+export interface IndexAccess {
+  type: 'IndexAccess';
+  object: ASTNode;
+  index: ASTNode;
 }
 
 export interface ArrayExpression {
