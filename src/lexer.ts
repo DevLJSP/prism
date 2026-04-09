@@ -39,6 +39,10 @@ const TWO_CHAR_TOKENS: Record<string, TokenType> = {
   '&&': TokenType.AND,
   '||': TokenType.OR,
   '??': TokenType.NULLISH,
+  '+=': TokenType.PLUS_EQ,
+  '-=': TokenType.MINUS_EQ,
+  '*=': TokenType.STAR_EQ,
+  '/=': TokenType.SLASH_EQ,
 }
 
 const ONE_CHAR_TOKENS: Record<string, TokenType> = {
@@ -62,6 +66,19 @@ const ONE_CHAR_TOKENS: Record<string, TokenType> = {
   ';': TokenType.SEMICOLON,
 }
 
+export class PrismError extends Error {
+  constructor(
+    public readonly phase: 'Lexer' | 'Parser' | 'Runtime',
+    public readonly token: string,
+    public readonly line: number,
+    public readonly col: number,
+    public readonly detail: string
+  ) {
+    super(`error at "${token}" line:${line}\n  [${phase}] ${detail}`)
+    this.name = 'PrismError'
+  }
+}
+
 export class Lexer {
   private pos = 0
   private line = 1
@@ -79,20 +96,18 @@ export class Lexer {
     return ch
   }
 
-  private error(msg: string): never {
-    throw new Error(`[Prism Lexer] ${msg} at line ${this.line}, col ${this.col}`)
+  private error(token: string, detail: string): never {
+    throw new PrismError('Lexer', token, this.line, this.col, detail)
   }
 
   private skipWhitespaceAndComments(): void {
     while (this.pos < this.source.length) {
       const ch = this.peek()
       if (/\s/.test(ch)) { this.advance(); continue }
-      // Line comment
       if (ch === '/' && this.peek(1) === '/') {
         while (this.pos < this.source.length && this.peek() !== '\n') this.advance()
         continue
       }
-      // Block comment
       if (ch === '/' && this.peek(1) === '*') {
         this.advance(); this.advance()
         while (this.pos < this.source.length) {
@@ -109,7 +124,7 @@ export class Lexer {
 
   private readString(quote: string): Token {
     const line = this.line, column = this.col
-    this.advance() // skip opening quote
+    this.advance()
     let value = ''
     while (this.pos < this.source.length && this.peek() !== quote) {
       if (this.peek() === '\\') {
@@ -121,15 +136,19 @@ export class Lexer {
         value += this.advance()
       }
     }
-    if (this.pos >= this.source.length) this.error('Unterminated string literal')
-    this.advance() // skip closing quote
+    if (this.pos >= this.source.length)
+      this.error(quote, 'Unterminated string literal — missing closing ' + quote)
+    this.advance()
     return { type: TokenType.STRING_LITERAL, value, line, column }
   }
 
   private readNumber(): Token {
     const line = this.line, column = this.col
     let value = ''
+    let dots = 0
     while (this.pos < this.source.length && /[0-9.]/.test(this.peek())) {
+      if (this.peek() === '.') dots++
+      if (dots > 1) this.error(value, 'Malformed number — multiple decimal points')
       value += this.advance()
     }
     return { type: TokenType.NUMBER_LITERAL, value, line, column }
@@ -184,8 +203,7 @@ export class Lexer {
         continue
       }
 
-      // Unknown character — skip with warning
-      console.warn(`[Prism Lexer] Unrecognized character '${first}' at ${line}:${column}`)
+      this.error(first, `Unrecognized character '${first}'`)
     }
 
     tokens.push({ type: TokenType.EOF, value: '', line: this.line, column: this.col })

@@ -1,0 +1,167 @@
+use http from "http"
+use { URL } from "url"
+
+
+mut any users = []
+mut int nextId = 1
+
+fn createUser(string name, string email) -> any {
+  final any user = { id: nextId, name: name, email: email, active: true }
+  users.push(user)
+  nextId += 1
+  shine user
+}
+
+fn findUser(int id) -> any {
+  for user in users {
+    if user.id == id {
+      shine user
+    }
+  }
+  shine null
+}
+
+fn deleteUser(int id) -> bool {
+  mut int idx = -1
+  mut int i = 0
+  for user in users {
+    if user.id == id {
+      idx = i
+    }
+    i += 1
+  }
+  if idx == -1 {
+    shine false
+  }
+  users.splice(idx, 1)
+  shine true
+}
+
+
+fn sendJson(any res, int status, any body) -> void {
+  final string json = JSON.stringify(body)
+  res.writeHead(status, { "Content-Type": "application/json" })
+  res.end(json)
+}
+
+fn sendError(any res, int status, string message) -> void {
+  sendJson(res, status, { ok: false, error: message })
+}
+
+
+fn handleRequest(any req, any res) -> void {
+  final any parsedUrl = new URL(req.url, "http://localhost:3000")
+  final string pathname = parsedUrl.pathname
+  final string method = req.method
+
+  res.setHeader("Access-Control-Allow-Origin", "*")
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type")
+
+  if method == "OPTIONS" {
+    res.writeHead(204)
+    res.end("")
+    shine null
+  }
+
+  if pathname == "/" && method == "GET" {
+    sendJson(res, 200, {
+      name: "Prism API",
+      version: "0.1.0",
+      endpoints: ["/users", "/users/:id", "/health"]
+    })
+    shine null
+  }
+
+  if pathname == "/health" && method == "GET" {
+    sendJson(res, 200, { ok: true, uptime: process.uptime() })
+    shine null
+  }
+
+  if pathname == "/users" && method == "GET" {
+    sendJson(res, 200, { ok: true, count: users.length, users: users })
+    shine null
+  }
+
+  if pathname == "/users" && method == "POST" {
+    mut string body = ""
+
+    req.on("data", fn(any chunk) -> void {
+      body += chunk.toString()
+    })
+
+    req.on("end", fn() -> void {
+      try {
+        final any data = JSON.parse(body)
+
+        if !data.name || !data.email {
+          sendError(res, 400, "Fields 'name' and 'email' are required")
+          shine null
+        }
+
+        final any user = createUser(data.name, data.email)
+        log("User created: " + user.name + " <" + user.email + ">")
+        sendJson(res, 201, { ok: true, user: user })
+      } catch (err) {
+        sendError(res, 400, "Invalid JSON body")
+      }
+    })
+
+    shine null
+  }
+
+  final any parts = pathname.split("/")
+  if parts.length == 3 && parts[1] == "users" {
+    final int id = parseInt(parts[2])
+
+    if isNaN(id) {
+      sendError(res, 400, "Invalid user ID")
+      shine null
+    }
+
+    match method {
+      "GET" => {
+        final any user = findUser(id)
+        if user == null {
+          sendError(res, 404, "User not found")
+          shine null
+        }
+        sendJson(res, 200, { ok: true, user: user })
+      },
+      "DELETE" => {
+        final bool removed = deleteUser(id)
+        if !removed {
+          sendError(res, 404, "User not found")
+          shine null
+        }
+        log("User deleted: id=" + id)
+        sendJson(res, 200, { ok: true, message: "User deleted" })
+      },
+      _ => {
+        sendError(res, 405, "Method not allowed")
+      }
+    }
+
+    shine null
+  }
+
+  sendError(res, 404, "Route not found: " + pathname)
+}
+
+createUser("Alice", "alice@example.com")
+createUser("Bob", "bob@example.com")
+createUser("Carol", "carol@example.com")
+
+
+final int PORT = 3000
+final any server = http.createServer(handleRequest)
+
+server.listen(PORT, fn() -> void {
+  log("🌈 Prism server running at http://localhost:" + PORT)
+  log("   GET  /          — API info")
+  log("   GET  /health    — Health check")
+  log("   GET  /users     — List all users")
+  log("   POST /users     — Create user  { name, email }")
+  log("   GET  /users/:id — Get user by id")
+  log("   DELETE /users/:id — Delete user")
+})

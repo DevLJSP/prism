@@ -2,6 +2,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { transpile } from './index'
+import { PrismError } from './lexer'
 
 const BANNER = `
  ██████╗ ██████╗ ██╗███████╗███╗   ███╗
@@ -30,6 +31,14 @@ Options:
 `)
 }
 
+function formatError(err: unknown, inputFile: string): string {
+  if (err instanceof PrismError) {
+    return `\nprism: ${inputFile}:${err.line}: error at "${err.token}" — ${err.detail}\n`
+  }
+  const msg = (err as Error).message ?? String(err)
+  return `\nprism: ${inputFile}: runtime error — ${msg}\n`
+}
+
 function main(): void {
   const args = process.argv.slice(2)
 
@@ -44,8 +53,9 @@ function main(): void {
   const outIdx = rest.indexOf('--out')
   const outFile = outIdx !== -1 ? rest[outIdx + 1] : null
 
-  // Find the input file (first non-flag argument)
-  const inputFile = rest.find(a => !a.startsWith('--') && rest.indexOf(a) !== outIdx + 1)
+  const inputFile = rest.find(
+    a => !a.startsWith('--') && (outIdx === -1 || rest.indexOf(a) !== outIdx + 1)
+  )
 
   if (!inputFile) {
     console.error('Error: No input file specified.')
@@ -84,12 +94,14 @@ function main(): void {
       }
 
       if (command === 'run') {
-        // Write temp file and run with Node
         const tmp = path.join(process.cwd(), `.prism_tmp_${Date.now()}.js`)
         const jsResult = transpile(source, { emitTypes: false })
         fs.writeFileSync(tmp, jsResult.code, 'utf-8')
         try {
           require('child_process').execFileSync('node', [tmp], { stdio: 'inherit' })
+        } catch (runErr) {
+          // Node runtime errors are already printed via stdio: 'inherit'
+          process.exit(1)
         } finally {
           fs.unlinkSync(tmp)
         }
@@ -100,7 +112,7 @@ function main(): void {
       process.exit(1)
     }
   } catch (err) {
-    console.error(`\n💥 ${(err as Error).message}\n`)
+    process.stderr.write(formatError(err, inputFile))
     process.exit(1)
   }
 }

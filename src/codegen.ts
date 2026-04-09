@@ -99,7 +99,6 @@ export class CodeGenerator {
 
         if (node.elseBranch) {
           if (node.elseBranch.length === 1 && node.elseBranch[0].type === 'IfStatement') {
-            // else if chain
             const inner = this.genNode(node.elseBranch[0])
             result[result.length - 1] = result[result.length - 1] + ' else ' + inner[0].trimStart()
             result.push(...inner.slice(1))
@@ -149,7 +148,19 @@ export class CodeGenerator {
         return [`${this.ind()}return${node.value ? ' ' + this.genExpr(node.value) : ''};`]
 
       case 'ThrowStatement':
-        return [`${this.ind()}throw ${this.genExpr(node.expression)};`]
+        return [`${this.ind()}throw new Error(${this.genExpr(node.expression)});`]
+
+      case 'TryCatchStatement': {
+        const tryLines = this.block(() => node.tryBody.flatMap(s => this.genNode(s)))
+        const catchLines = this.block(() => node.catchBody.flatMap(s => this.genNode(s)))
+        return [
+          `${this.ind()}try {`,
+          ...tryLines,
+          `${this.ind()}} catch (${node.catchVar}) {`,
+          ...catchLines,
+          `${this.ind()}}`,
+        ]
+      }
 
       case 'ExpressionStatement':
         return [`${this.ind()}${this.genExpr(node.expression)};`]
@@ -180,21 +191,28 @@ export class CodeGenerator {
 
   genExpr(node: ASTNode): string {
     switch (node.type) {
-      case 'Identifier':       return node.name
-      case 'StringLiteral':    return JSON.stringify(node.value)
-      case 'NumberLiteral':    return String(node.value)
-      case 'BooleanLiteral':   return String(node.value)
-      case 'NullLiteral':      return 'null'
-      case 'BinaryExpression': return `${this.genExpr(node.left)} ${node.operator} ${this.genExpr(node.right)}`
-      case 'UnaryExpression':  return `${node.operator}${this.genExpr(node.operand)}`
-      case 'Assignment':       return `${this.genExpr(node.target)} = ${this.genExpr(node.value)}`
-      case 'PropertyAccess':   return `${this.genExpr(node.object)}.${node.property}`
-      case 'IndexAccess':      return `${this.genExpr(node.object)}[${this.genExpr(node.index)}]`
-      case 'CallExpression':   return `${node.callee}(${node.args.map(a => this.genExpr(a)).join(', ')})`
-      case 'MethodCall':       return `${this.genExpr(node.object)}.${node.method}(${node.args.map(a => this.genExpr(a)).join(', ')})`
-      case 'NewExpression':    return `new ${node.className}(${node.args.map(a => this.genExpr(a)).join(', ')})`
-      case 'ArrayExpression':  return `[${node.elements.map(e => this.genExpr(e)).join(', ')}]`
-      case 'ObjectExpression': return `{ ${node.properties.map(p => `${p.key}: ${this.genExpr(p.value)}`).join(', ')} }`
+      case 'Identifier':        return node.name
+      case 'StringLiteral':     return JSON.stringify(node.value)
+      case 'NumberLiteral':     return String(node.value)
+      case 'BooleanLiteral':    return String(node.value)
+      case 'NullLiteral':       return 'null'
+      case 'BinaryExpression':  return `${this.genExpr(node.left)} ${node.operator} ${this.genExpr(node.right)}`
+      case 'UnaryExpression':   return `${node.operator}${this.genExpr(node.operand)}`
+      case 'Assignment':        return `${this.genExpr(node.target)} = ${this.genExpr(node.value)}`
+      case 'CompoundAssignment':return `${this.genExpr(node.target)} ${node.operator} ${this.genExpr(node.value)}`
+      case 'PropertyAccess':    return `${this.genExpr(node.object)}.${node.property}`
+      case 'IndexAccess':       return `${this.genExpr(node.object)}[${this.genExpr(node.index)}]`
+      case 'ArrayExpression':   return `[${node.elements.map(e => this.genExpr(e)).join(', ')}]`
+      case 'ObjectExpression':  return `{ ${node.properties.map(p => `${p.key}: ${this.genExpr(p.value)}`).join(', ')} }`
+      case 'NewExpression':     return `new ${node.className}(${node.args.map(a => this.genExpr(a)).join(', ')})`
+      case 'MethodCall':        return `${this.genExpr(node.object)}.${node.method}(${node.args.map(a => this.genExpr(a)).join(', ')})`
+      case 'CallExpression': {
+        // Built-in Prism functions
+        if (node.callee === 'log') return `console.log(${node.args.map(a => this.genExpr(a)).join(', ')})`
+        if (node.callee === 'panic') return `(() => { throw new Error(${node.args.map(a => this.genExpr(a)).join(', ')}); })()`
+        if (node.callee === 'typeOf') return `typeof ${this.genExpr(node.args[0])}`
+        return `${node.callee}(${node.args.map(a => this.genExpr(a)).join(', ')})`
+      }
       default: return `/* expr: ${(node as ASTNode).type} */`
     }
   }

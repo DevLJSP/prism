@@ -4,13 +4,18 @@ import {
   MatchCase, ReturnStatement, ThrowStatement, WhileStatement, ForStatement,
   ExpressionStatement, ImportDeclaration, CallExpression, MethodCall, NewExpression,
   Identifier, StringLiteral, NumberLiteral, BooleanLiteral, NullLiteral,
-  BinaryExpression, UnaryExpression, Assignment, PropertyAccess, IndexAccess,
-  ArrayExpression, ObjectExpression,
+  BinaryExpression, UnaryExpression, Assignment, CompoundAssignment, PropertyAccess,
+  IndexAccess, ArrayExpression, ObjectExpression, TryCatchStatement,
 } from './tokens'
+import { PrismError } from './lexer'
 
 const TYPE_TOKENS = new Set([
   TokenType.STRING, TokenType.INT, TokenType.FLOAT,
   TokenType.BOOL, TokenType.VOID, TokenType.ANY, TokenType.IDENTIFIER,
+])
+
+const COMPOUND_OPS = new Set([
+  TokenType.PLUS_EQ, TokenType.MINUS_EQ, TokenType.STAR_EQ, TokenType.SLASH_EQ,
 ])
 
 export class Parser {
@@ -36,8 +41,12 @@ export class Parser {
   private expect(type: TokenType): Token {
     if (!this.check(type)) {
       const t = this.current()
-      throw new Error(
-        `[Prism Parser] Expected ${type} but got '${t.value}' (${t.type}) at ${t.line}:${t.column}`
+      throw new PrismError(
+        'Parser',
+        t.value || type,
+        t.line,
+        t.column,
+        `Expected ${type} but got '${t.value}' (${t.type})`
       )
     }
     return this.advance()
@@ -47,11 +56,9 @@ export class Parser {
     return TYPE_TOKENS.has(this.current().type)
   }
 
-  /** Parse a type annotation, e.g. string, int, bool, User, string[] */
   private parseTypeAnnotation(): string {
     const t = this.advance()
     let name = t.value
-    // Array type: type[]
     if (this.check(TokenType.LBRACKET) && this.peek().type === TokenType.RBRACKET) {
       this.advance(); this.advance()
       name += '[]'
@@ -82,6 +89,7 @@ export class Parser {
       case TokenType.WHILE:   return this.parseWhile()
       case TokenType.SHINE:   return this.parseReturn()
       case TokenType.SHATTER: return this.parseThrow()
+      case TokenType.TRY:     return this.parseTryCatch()
       case TokenType.FINAL:
       case TokenType.MUT:     return this.parseVarDecl()
       default:
@@ -113,7 +121,6 @@ export class Parser {
 
   private parseVarDecl(): VariableDeclaration {
     const isMutable = this.advance().type === TokenType.MUT
-    // Optional type annotation before name
     let typeAnnotation: string | undefined
     if (this.isTypeToken() && this.peek().type === TokenType.IDENTIFIER) {
       typeAnnotation = this.parseTypeAnnotation()
@@ -179,7 +186,6 @@ export class Parser {
         const fn = this.parseFunctionDeclaration()
         methods.push({ ...fn, type: 'MethodDeclaration', visibility })
       } else {
-        // Property declaration
         let typeAnnotation: string | undefined
         if (this.isTypeToken() && this.peek().type === TokenType.IDENTIFIER) {
           typeAnnotation = this.parseTypeAnnotation()
@@ -276,29 +282,46 @@ export class Parser {
     return { type: 'ThrowStatement', expression }
   }
 
+  private parseTryCatch(): TryCatchStatement {
+    this.expect(TokenType.TRY)
+    const tryBody = this.parseBlock()
+    this.expect(TokenType.CATCH)
+    this.expect(TokenType.LPAREN)
+    const catchVar = this.expect(TokenType.IDENTIFIER).value
+    this.expect(TokenType.RPAREN)
+    const catchBody = this.parseBlock()
+    return { type: 'TryCatchStatement', tryBody, catchVar, catchBody }
+  }
+
   private parseExpressionStatement(): ExpressionStatement {
     const expression = this.parseExpression()
     this.match(TokenType.SEMICOLON)
     return { type: 'ExpressionStatement', expression }
   }
 
-  // ─── Expressions (Pratt-style precedence) ──────────────────────────────────
+  // ─── Expressions ───────────────────────────────────────────────────────────
 
   private parseExpression(): ASTNode { return this.parseAssignment() }
 
   private parseAssignment(): ASTNode {
     const expr = this.parseNullish()
+
+    // Compound assignment: x += 1, x -= 1, etc.
+    if (this.check(TokenType.PLUS_EQ, TokenType.MINUS_EQ, TokenType.STAR_EQ, TokenType.SLASH_EQ)) {
+      const op = this.advance().value
+      const value = this.parseAssignment()
+      return { type: 'CompoundAssignment', operator: op, target: expr, value } as CompoundAssignment
+    }
+
     if (this.match(TokenType.EQUALS)) {
       const value = this.parseAssignment()
       return { type: 'Assignment', target: expr, value } as Assignment
     }
+
     return expr
   }
 
-  private parseBinary(
-    next: () => ASTNode,
-    ...ops: TokenType[]
-  ): ASTNode {
+  private parseBinary(next: () => ASTNode, ...ops: TokenType[]): ASTNode {
     let left = next.call(this)
     while (this.check(...ops)) {
       const op = this.advance().value
@@ -307,13 +330,13 @@ export class Parser {
     return left
   }
 
-  private parseNullish(): ASTNode  { return this.parseBinary(this.parseOr, TokenType.NULLISH) }
-  private parseOr(): ASTNode       { return this.parseBinary(this.parseAnd, TokenType.OR) }
-  private parseAnd(): ASTNode      { return this.parseBinary(this.parseEquality, TokenType.AND) }
-  private parseEquality(): ASTNode { return this.parseBinary(this.parseRelational, TokenType.EQ_EQ, TokenType.BANG_EQ) }
+  private parseNullish(): ASTNode    { return this.parseBinary(this.parseOr, TokenType.NULLISH) }
+  private parseOr(): ASTNode         { return this.parseBinary(this.parseAnd, TokenType.OR) }
+  private parseAnd(): ASTNode        { return this.parseBinary(this.parseEquality, TokenType.AND) }
+  private parseEquality(): ASTNode   { return this.parseBinary(this.parseRelational, TokenType.EQ_EQ, TokenType.BANG_EQ) }
   private parseRelational(): ASTNode { return this.parseBinary(this.parseAddSub, TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE) }
-  private parseAddSub(): ASTNode   { return this.parseBinary(this.parseMulDiv, TokenType.PLUS, TokenType.MINUS) }
-  private parseMulDiv(): ASTNode   { return this.parseBinary(this.parseUnary, TokenType.STAR, TokenType.SLASH) }
+  private parseAddSub(): ASTNode     { return this.parseBinary(this.parseMulDiv, TokenType.PLUS, TokenType.MINUS) }
+  private parseMulDiv(): ASTNode     { return this.parseBinary(this.parseUnary, TokenType.STAR, TokenType.SLASH) }
 
   private parseUnary(): ASTNode {
     if (this.check(TokenType.BANG, TokenType.MINUS)) {
@@ -430,8 +453,12 @@ export class Parser {
         return { type: 'Identifier', name: t.value } as Identifier
 
       default:
-        throw new Error(
-          `[Prism Parser] Unexpected token '${t.value}' (${t.type}) at ${t.line}:${t.column}`
+        throw new PrismError(
+          'Parser',
+          t.value || t.type,
+          t.line,
+          t.column,
+          `Unexpected token '${t.value}' (${t.type})`
         )
     }
   }

@@ -1,25 +1,27 @@
 export enum TokenType {
   // === PRISM KEYWORDS ===
-  FN = 'FN',           // function declaration
-  FINAL = 'FINAL',     // immutable variable (replaces const)
-  MUT = 'MUT',         // mutable variable (replaces let)
+  FN = 'FN',
+  FINAL = 'FINAL',
+  MUT = 'MUT',
   CLASS = 'CLASS',
-  PUB = 'PUB',         // public visibility
-  PRIV = 'PRIV',       // private visibility
+  PUB = 'PUB',
+  PRIV = 'PRIV',
   IF = 'IF',
   ELSE = 'ELSE',
-  MATCH = 'MATCH',     // pattern matching (switch)
-  SHINE = 'SHINE',     // return (light shines through a prism)
-  SHATTER = 'SHATTER', // throw (prisms shatter when dropped)
+  MATCH = 'MATCH',
+  SHINE = 'SHINE',
+  SHATTER = 'SHATTER',
   FOR = 'FOR',
   IN = 'IN',
   WHILE = 'WHILE',
-  USE = 'USE',         // import
+  USE = 'USE',
   FROM = 'FROM',
   NEW = 'NEW',
   TRUE = 'TRUE',
   FALSE = 'FALSE',
   NULL = 'NULL',
+  TRY = 'TRY',
+  CATCH = 'CATCH',
 
   // === TYPES ===
   STRING = 'STRING',
@@ -49,9 +51,15 @@ export enum TokenType {
   BANG = 'BANG',
   AND = 'AND',
   OR = 'OR',
-  ARROW = 'ARROW',       // ->
-  FAT_ARROW = 'FAT_ARROW', // =>
-  NULLISH = 'NULLISH',  // ??
+  ARROW = 'ARROW',
+  FAT_ARROW = 'FAT_ARROW',
+  NULLISH = 'NULLISH',
+
+  // === COMPOUND ASSIGNMENT ===
+  PLUS_EQ = 'PLUS_EQ',
+  MINUS_EQ = 'MINUS_EQ',
+  STAR_EQ = 'STAR_EQ',
+  SLASH_EQ = 'SLASH_EQ',
 
   // === PUNCTUATORS ===
   LPAREN = 'LPAREN',
@@ -95,6 +103,7 @@ export type ASTNode =
   | BinaryExpression
   | UnaryExpression
   | Assignment
+  | CompoundAssignment
   | IfStatement
   | MatchStatement
   | ReturnStatement
@@ -106,7 +115,8 @@ export type ASTNode =
   | ObjectExpression
   | ThrowStatement
   | WhileStatement
-  | ForStatement;
+  | ForStatement
+  | TryCatchStatement;
 
 export interface Program {
   type: 'Program';
@@ -215,6 +225,13 @@ export interface Assignment {
   value: ASTNode;
 }
 
+export interface CompoundAssignment {
+  type: 'CompoundAssignment';
+  operator: string; // '+=' | '-=' | '*=' | '/='
+  target: ASTNode;
+  value: ASTNode;
+}
+
 export interface IfStatement {
   type: 'IfStatement';
   condition: ASTNode;
@@ -288,4 +305,11 @@ export interface ForStatement {
   variable: string;
   iterable: ASTNode;
   body: ASTNode[];
+}
+
+export interface TryCatchStatement {
+  type: 'TryCatchStatement';
+  tryBody: ASTNode[];
+  catchVar: string;
+  catchBody: ASTNode[];
 }
