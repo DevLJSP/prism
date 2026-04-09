@@ -151,6 +151,7 @@ export interface ClassProperty {
   typeAnnotation?: string;
   visibility: 'pub' | 'priv';
   initializer?: ASTNode;
+  isMutable?: boolean;
 }
 
 export interface MethodDeclaration {

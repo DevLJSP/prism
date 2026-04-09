@@ -1,6 +1,8 @@
 import { Token, TokenType } from './tokens'
 
-const KEYWORDS: Record<string, TokenType> = {
+const KEYWORDS: Record<string, TokenType> = Object.create(null)
+
+Object.assign(KEYWORDS, {
   fn: TokenType.FN,
   final: TokenType.FINAL,
   mut: TokenType.MUT,
@@ -27,7 +29,10 @@ const KEYWORDS: Record<string, TokenType> = {
   bool: TokenType.BOOL,
   void: TokenType.VOID,
   any: TokenType.ANY,
-}
+
+  try: TokenType.TRY,
+  catch: TokenType.CATCH,
+})
 
 const TWO_CHAR_TOKENS: Record<string, TokenType> = {
   '=>': TokenType.FAT_ARROW,

@@ -1,4 +1,4 @@
-import { ASTNode, MatchCase } from './tokens'
+import { ASTNode, FunctionDeclaration, MatchCase } from './tokens'
 
 const TYPE_MAP: Record<string, string> = {
   int: 'number',
@@ -59,6 +59,10 @@ export class CodeGenerator {
       }
 
       case 'FunctionDeclaration': {
+        // Anonymous function — emitted as a multi-line arrow function expression
+        if (!node.name) {
+          return this.genAnonFnLines(node)
+        }
         const sig = this.buildFnSignature(node.name, node.params, node.returnType)
         const body = this.block(() => node.body.flatMap(s => this.genNode(s)))
         return [`${this.ind()}function ${sig} {`, ...body, `${this.ind()}}`]
@@ -170,6 +174,20 @@ export class CodeGenerator {
     }
   }
 
+  // Emit an anonymous FunctionDeclaration (name === '') as a multi-line arrow function.
+  // Returns the lines WITHOUT a trailing semicolon so they can be embedded inside
+  // argument lists or variable initialisers by the caller.
+  private genAnonFnLines(node: FunctionDeclaration): string[] {
+    const paramStr = node.params.map(p => {
+      const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : ''
+      return `${p.name}${t}`
+    }).join(', ')
+    const retStr = this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : ''
+    const header = `${this.ind()}(${paramStr})${retStr} => {`
+    const body = this.block(() => node.body.flatMap(s => this.genNode(s)))
+    return [header, ...body, `${this.ind()}}`]
+  }
+
   private buildFnSignature(
     name: string,
     params: { name: string; typeAnnotation?: string }[],
@@ -203,17 +221,36 @@ export class CodeGenerator {
       case 'PropertyAccess':    return `${this.genExpr(node.object)}.${node.property}`
       case 'IndexAccess':       return `${this.genExpr(node.object)}[${this.genExpr(node.index)}]`
       case 'ArrayExpression':   return `[${node.elements.map(e => this.genExpr(e)).join(', ')}]`
-      case 'ObjectExpression':  return `{ ${node.properties.map(p => `${p.key}: ${this.genExpr(p.value)}`).join(', ')} }`
+      case 'ObjectExpression':  return `{ ${node.properties.map(p => `${JSON.stringify(p.key)}: ${this.genExpr(p.value)}`).join(', ')} }`
       case 'NewExpression':     return `new ${node.className}(${node.args.map(a => this.genExpr(a)).join(', ')})`
-      case 'MethodCall':        return `${this.genExpr(node.object)}.${node.method}(${node.args.map(a => this.genExpr(a)).join(', ')})`
+      case 'MethodCall':        return `${this.genExpr(node.object)}.${node.method}(${this.genArgExprs(node.args)})`
       case 'CallExpression': {
         // Built-in Prism functions
-        if (node.callee === 'log') return `console.log(${node.args.map(a => this.genExpr(a)).join(', ')})`
-        if (node.callee === 'panic') return `(() => { throw new Error(${node.args.map(a => this.genExpr(a)).join(', ')}); })()`
+        if (node.callee === 'log')    return `console.log(${this.genArgExprs(node.args)})`
+        if (node.callee === 'panic')  return `(() => { throw new Error(${this.genArgExprs(node.args)}); })()`
         if (node.callee === 'typeOf') return `typeof ${this.genExpr(node.args[0])}`
-        return `${node.callee}(${node.args.map(a => this.genExpr(a)).join(', ')})`
+        return `${node.callee}(${this.genArgExprs(node.args)})`
       }
+
+      // Anonymous function used as an expression (e.g. passed as an argument inline)
+      case 'FunctionDeclaration': {
+        const paramStr = node.params.map(p => {
+          const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : ''
+          return `${p.name}${t}`
+        }).join(', ')
+        const retStr = this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : ''
+        // Flatten the body statements into a single-line block for inline use
+        const bodyStatements = node.body.map(s => this.genNode(s).join(' ').trim()).join(' ')
+        return `(${paramStr})${retStr} => { ${bodyStatements} }`
+      }
+
       default: return `/* expr: ${(node as ASTNode).type} */`
     }
+  }
+
+  // Generates argument expressions, handling anonymous functions as multi-line
+  // when they are the only argument or when they are the last argument (common pattern).
+  private genArgExprs(args: ASTNode[]): string {
+    return args.map(a => this.genExpr(a)).join(', ')
   }
 }

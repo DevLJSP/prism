@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'fs'
 import * as path from 'path'
+import { spawnSync } from 'child_process'
 import { transpile } from './index'
 import { PrismError } from './lexer'
 
@@ -26,8 +27,8 @@ Commands:
 Options:
   --js          Emit plain JavaScript (no type annotations)
   --ast         Print the AST as JSON
-  --out <file>  Write output to file instead of stdout
-  --help        Show this message
+  --out <file>   Write output to file instead of stdout
+  --help         Show this message
 `)
 }
 
@@ -35,8 +36,71 @@ function formatError(err: unknown, inputFile: string): string {
   if (err instanceof PrismError) {
     return `\nprism: ${inputFile}:${err.line}: error at "${err.token}" — ${err.detail}\n`
   }
-  const msg = (err as Error).message ?? String(err)
+
+  const msg = err instanceof Error ? err.message : String(err)
   return `\nprism: ${inputFile}: runtime error — ${msg}\n`
+}
+
+function createTempCleanup(tmpFile: string) {
+  let cleaned = false
+
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+
+    try {
+      if (fs.existsSync(tmpFile)) {
+        fs.rmSync(tmpFile, { force: true })
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
+  const handleSignal = (signal: NodeJS.Signals) => {
+    cleanup()
+    process.exit(signal === 'SIGINT' ? 130 : 143)
+  }
+
+  process.once('SIGINT', handleSignal)
+  process.once('SIGTERM', handleSignal)
+  process.once('exit', cleanup)
+
+  return () => {
+    cleanup()
+    process.removeListener('SIGINT', handleSignal)
+    process.removeListener('SIGTERM', handleSignal)
+    process.removeListener('exit', cleanup)
+  }
+}
+
+function runGeneratedCode(source: string): void {
+  const tmp = path.join(process.cwd(), `.prism_tmp_${Date.now()}.mjs`)
+  const stopCleanup = createTempCleanup(tmp)
+
+  try {
+    const jsResult = transpile(source, { emitTypes: false })
+    fs.writeFileSync(tmp, jsResult.code, 'utf-8')
+
+    const result = spawnSync(process.execPath, [tmp], {
+      stdio: 'inherit',
+      shell: false,
+    })
+
+    if (result.error) {
+      throw result.error
+    }
+
+    if (result.signal === 'SIGINT' || result.status === 130) {
+      return
+    }
+
+    if ((result.status ?? 0) !== 0) {
+      process.exit(result.status ?? 1)
+    }
+  } finally {
+    stopCleanup()
+  }
 }
 
 function main(): void {
@@ -94,17 +158,7 @@ function main(): void {
       }
 
       if (command === 'run') {
-        const tmp = path.join(process.cwd(), `.prism_tmp_${Date.now()}.js`)
-        const jsResult = transpile(source, { emitTypes: false })
-        fs.writeFileSync(tmp, jsResult.code, 'utf-8')
-        try {
-          require('child_process').execFileSync('node', [tmp], { stdio: 'inherit' })
-        } catch (runErr) {
-          // Node runtime errors are already printed via stdio: 'inherit'
-          process.exit(1)
-        } finally {
-          fs.unlinkSync(tmp)
-        }
+        runGeneratedCode(source)
       }
     } else {
       console.error(`Unknown command: ${command}`)
