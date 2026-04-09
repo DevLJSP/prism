@@ -9,6 +9,7 @@ Object.assign(KEYWORDS, {
   class: TokenType.CLASS,
   pub: TokenType.PUB,
   priv: TokenType.PRIV,
+  static: TokenType.STATIC,     // ← added
   if: TokenType.IF,
   else: TokenType.ELSE,
   match: TokenType.MATCH,
@@ -29,7 +30,6 @@ Object.assign(KEYWORDS, {
   bool: TokenType.BOOL,
   void: TokenType.VOID,
   any: TokenType.ANY,
-
   try: TokenType.TRY,
   catch: TokenType.CATCH,
 })

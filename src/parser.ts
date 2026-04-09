@@ -47,13 +47,6 @@ const TYPE_TOKENS = new Set([
   TokenType.IDENTIFIER,
 ]);
 
-const COMPOUND_OPS = new Set([
-  TokenType.PLUS_EQ,
-  TokenType.MINUS_EQ,
-  TokenType.STAR_EQ,
-  TokenType.SLASH_EQ,
-]);
-
 export class Parser {
   private pos = 0;
 
@@ -61,15 +54,9 @@ export class Parser {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  private current(): Token {
-    return this.tokens[this.pos];
-  }
-  private peek(offset = 1): Token {
-    return this.tokens[this.pos + offset];
-  }
-  private advance(): Token {
-    return this.tokens[this.pos++];
-  }
+  private current(): Token { return this.tokens[this.pos]; }
+  private peek(offset = 1): Token { return this.tokens[this.pos + offset]; }
+  private advance(): Token { return this.tokens[this.pos++]; }
 
   private check(...types: TokenType[]): boolean {
     return types.includes(this.current().type);
@@ -126,31 +113,19 @@ export class Parser {
 
   private parseStatement(): ASTNode {
     switch (this.current().type) {
-      case TokenType.USE:
-        return this.parseImport();
-      case TokenType.FN:
-        return this.parseFunctionDeclaration();
-      case TokenType.CLASS:
-        return this.parseClassDeclaration();
-      case TokenType.IF:
-        return this.parseIf();
-      case TokenType.MATCH:
-        return this.parseMatch();
-      case TokenType.FOR:
-        return this.parseFor();
-      case TokenType.WHILE:
-        return this.parseWhile();
-      case TokenType.SHINE:
-        return this.parseReturn();
-      case TokenType.SHATTER:
-        return this.parseThrow();
-      case TokenType.TRY:
-        return this.parseTryCatch();
+      case TokenType.USE:    return this.parseImport();
+      case TokenType.FN:     return this.parseFunctionDeclaration();
+      case TokenType.CLASS:  return this.parseClassDeclaration();
+      case TokenType.IF:     return this.parseIf();
+      case TokenType.MATCH:  return this.parseMatch();
+      case TokenType.FOR:    return this.parseFor();
+      case TokenType.WHILE:  return this.parseWhile();
+      case TokenType.SHINE:  return this.parseReturn();
+      case TokenType.SHATTER:return this.parseThrow();
+      case TokenType.TRY:    return this.parseTryCatch();
       case TokenType.FINAL:
-      case TokenType.MUT:
-        return this.parseVarDecl();
-      default:
-        return this.parseExpressionStatement();
+      case TokenType.MUT:    return this.parseVarDecl();
+      default:               return this.parseExpressionStatement();
     }
   }
 
@@ -188,13 +163,7 @@ export class Parser {
       initializer = this.parseExpression();
     }
     this.match(TokenType.SEMICOLON);
-    return {
-      type: "VariableDeclaration",
-      name,
-      typeAnnotation,
-      isMutable,
-      initializer,
-    };
+    return { type: "VariableDeclaration", name, typeAnnotation, isMutable, initializer };
   }
 
   private parseFunctionDeclaration(): FunctionDeclaration {
@@ -207,7 +176,6 @@ export class Parser {
     return { type: "FunctionDeclaration", name, params, returnType, body };
   }
 
-  // Anonymous function expression: fn(...) -> type { ... }
   private parseAnonFunction(): FunctionDeclaration {
     this.expect(TokenType.FN);
     const params = this.parseParamList();
@@ -252,14 +220,19 @@ export class Parser {
     const properties: ClassProperty[] = [];
 
     while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
+      // Parse optional visibility modifier (pub | priv)
       const visTok = this.match(TokenType.PUB, TokenType.PRIV);
       const visibility: "pub" | "priv" =
         visTok?.type === TokenType.PRIV ? "priv" : "pub";
 
+      // Parse optional static modifier                      ← added
+      const isStatic = !!this.match(TokenType.STATIC);
+
       if (this.check(TokenType.FN)) {
         const fn = this.parseFunctionDeclaration();
-        methods.push({ ...fn, type: "MethodDeclaration", visibility });
+        methods.push({ ...fn, type: "MethodDeclaration", visibility, isStatic });
       } else {
+        // Properties cannot be static (no runtime equivalent without a constructor)
         const mutTok = this.match(TokenType.FINAL, TokenType.MUT);
         const isMutable = mutTok?.type === TokenType.MUT;
 
@@ -276,13 +249,7 @@ export class Parser {
         }
 
         this.match(TokenType.SEMICOLON);
-        properties.push({
-          name: propName,
-          typeAnnotation,
-          visibility,
-          initializer,
-          isMutable,
-        });
+        properties.push({ name: propName, typeAnnotation, visibility, initializer, isMutable });
       }
     }
 
@@ -314,18 +281,15 @@ export class Parser {
       const t = this.current();
 
       if (t.type === TokenType.IDENTIFIER && t.value === "_") {
-        this.advance();
-        pattern = "default";
+        this.advance(); pattern = "default";
       } else if (t.type === TokenType.STRING_LITERAL) {
         pattern = this.advance().value;
       } else if (t.type === TokenType.NUMBER_LITERAL) {
         pattern = parseFloat(this.advance().value);
       } else if (t.type === TokenType.TRUE) {
-        this.advance();
-        pattern = true;
+        this.advance(); pattern = true;
       } else if (t.type === TokenType.FALSE) {
-        this.advance();
-        pattern = false;
+        this.advance(); pattern = false;
       } else {
         pattern = this.advance().value;
       }
@@ -394,29 +358,15 @@ export class Parser {
 
   // ─── Expressions ───────────────────────────────────────────────────────────
 
-  private parseExpression(): ASTNode {
-    return this.parseAssignment();
-  }
+  private parseExpression(): ASTNode { return this.parseAssignment(); }
 
   private parseAssignment(): ASTNode {
     const expr = this.parseNullish();
 
-    if (
-      this.check(
-        TokenType.PLUS_EQ,
-        TokenType.MINUS_EQ,
-        TokenType.STAR_EQ,
-        TokenType.SLASH_EQ,
-      )
-    ) {
+    if (this.check(TokenType.PLUS_EQ, TokenType.MINUS_EQ, TokenType.STAR_EQ, TokenType.SLASH_EQ)) {
       const op = this.advance().value;
       const value = this.parseAssignment();
-      return {
-        type: "CompoundAssignment",
-        operator: op,
-        target: expr,
-        value,
-      } as CompoundAssignment;
+      return { type: "CompoundAssignment", operator: op, target: expr, value } as CompoundAssignment;
     }
 
     if (this.match(TokenType.EQUALS)) {
@@ -431,56 +381,23 @@ export class Parser {
     let left = next.call(this);
     while (this.check(...ops)) {
       const op = this.advance().value;
-      left = {
-        type: "BinaryExpression",
-        operator: op,
-        left,
-        right: next.call(this),
-      } as BinaryExpression;
+      left = { type: "BinaryExpression", operator: op, left, right: next.call(this) } as BinaryExpression;
     }
     return left;
   }
 
-  private parseNullish(): ASTNode {
-    return this.parseBinary(this.parseOr, TokenType.NULLISH);
-  }
-  private parseOr(): ASTNode {
-    return this.parseBinary(this.parseAnd, TokenType.OR);
-  }
-  private parseAnd(): ASTNode {
-    return this.parseBinary(this.parseEquality, TokenType.AND);
-  }
-  private parseEquality(): ASTNode {
-    return this.parseBinary(
-      this.parseRelational,
-      TokenType.EQ_EQ,
-      TokenType.BANG_EQ,
-    );
-  }
-  private parseRelational(): ASTNode {
-    return this.parseBinary(
-      this.parseAddSub,
-      TokenType.GT,
-      TokenType.LT,
-      TokenType.GTE,
-      TokenType.LTE,
-    );
-  }
-  private parseAddSub(): ASTNode {
-    return this.parseBinary(this.parseMulDiv, TokenType.PLUS, TokenType.MINUS);
-  }
-  private parseMulDiv(): ASTNode {
-    return this.parseBinary(this.parseUnary, TokenType.STAR, TokenType.SLASH);
-  }
+  private parseNullish():    ASTNode { return this.parseBinary(this.parseOr, TokenType.NULLISH); }
+  private parseOr():         ASTNode { return this.parseBinary(this.parseAnd, TokenType.OR); }
+  private parseAnd():        ASTNode { return this.parseBinary(this.parseEquality, TokenType.AND); }
+  private parseEquality():   ASTNode { return this.parseBinary(this.parseRelational, TokenType.EQ_EQ, TokenType.BANG_EQ); }
+  private parseRelational(): ASTNode { return this.parseBinary(this.parseAddSub, TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE); }
+  private parseAddSub():     ASTNode { return this.parseBinary(this.parseMulDiv, TokenType.PLUS, TokenType.MINUS); }
+  private parseMulDiv():     ASTNode { return this.parseBinary(this.parseUnary, TokenType.STAR, TokenType.SLASH); }
 
   private parseUnary(): ASTNode {
     if (this.check(TokenType.BANG, TokenType.MINUS)) {
       const op = this.advance().value;
-      return {
-        type: "UnaryExpression",
-        operator: op,
-        operand: this.parseUnary(),
-      } as UnaryExpression;
+      return { type: "UnaryExpression", operator: op, operand: this.parseUnary() } as UnaryExpression;
     }
     return this.parsePostfix();
   }
@@ -493,18 +410,9 @@ export class Parser {
         const prop = this.expect(TokenType.IDENTIFIER).value;
         if (this.check(TokenType.LPAREN)) {
           const args = this.parseArgList();
-          expr = {
-            type: "MethodCall",
-            object: expr,
-            method: prop,
-            args,
-          } as MethodCall;
+          expr = { type: "MethodCall", object: expr, method: prop, args } as MethodCall;
         } else {
-          expr = {
-            type: "PropertyAccess",
-            object: expr,
-            property: prop,
-          } as PropertyAccess;
+          expr = { type: "PropertyAccess", object: expr, property: prop } as PropertyAccess;
         }
       } else if (this.check(TokenType.LBRACKET)) {
         this.advance();
@@ -513,11 +421,7 @@ export class Parser {
         expr = { type: "IndexAccess", object: expr, index } as IndexAccess;
       } else if (this.check(TokenType.LPAREN) && expr.type === "Identifier") {
         const args = this.parseArgList();
-        expr = {
-          type: "CallExpression",
-          callee: (expr as Identifier).name,
-          args,
-        } as CallExpression;
+        expr = { type: "CallExpression", callee: (expr as Identifier).name, args } as CallExpression;
       } else {
         break;
       }
@@ -530,7 +434,6 @@ export class Parser {
     this.expect(TokenType.LPAREN);
     const args: ASTNode[] = [];
     while (!this.check(TokenType.RPAREN, TokenType.EOF)) {
-      // Allow anonymous fn expressions as arguments
       if (this.check(TokenType.FN)) {
         args.push(this.parseAnonFunction());
       } else {
@@ -548,10 +451,7 @@ export class Parser {
     switch (t.type) {
       case TokenType.NUMBER_LITERAL:
         this.advance();
-        return {
-          type: "NumberLiteral",
-          value: parseFloat(t.value),
-        } as NumberLiteral;
+        return { type: "NumberLiteral", value: parseFloat(t.value) } as NumberLiteral;
 
       case TokenType.STRING_LITERAL:
         this.advance();
@@ -576,7 +476,6 @@ export class Parser {
         return { type: "NewExpression", className, args } as NewExpression;
       }
 
-      // Anonymous function as a primary expression: fn(...) -> type { ... }
       case TokenType.FN:
         return this.parseAnonFunction();
 
@@ -595,7 +494,6 @@ export class Parser {
         this.advance();
         const properties: { key: string; value: ASTNode }[] = [];
         while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
-          // Allow string literal keys e.g. { "Content-Type": "application/json" }
           const keyTok = this.check(TokenType.STRING_LITERAL)
             ? this.advance()
             : this.expect(TokenType.IDENTIFIER);

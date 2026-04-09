@@ -59,7 +59,6 @@ export class CodeGenerator {
       }
 
       case 'FunctionDeclaration': {
-        // Anonymous function — emitted as a multi-line arrow function expression
         if (!node.name) {
           return this.genAnonFnLines(node)
         }
@@ -73,19 +72,20 @@ export class CodeGenerator {
         this.indentLevel++
 
         for (const prop of node.properties) {
-          const vis = prop.visibility === 'priv' ? 'private' : 'public'
+          const visPart = this.emitTypes ? (prop.visibility === 'priv' ? 'private ' : 'public ') : ''
           const typePart = this.emitTypes && prop.typeAnnotation ? `: ${mapType(prop.typeAnnotation)}` : ''
           const initPart = prop.initializer ? ` = ${this.genExpr(prop.initializer)}` : ''
-          lines.push(`${this.ind()}${vis} ${prop.name}${typePart}${initPart};`)
+          lines.push(`${this.ind()}${visPart}${prop.name}${typePart}${initPart};`)
         }
 
         if (node.properties.length > 0 && node.methods.length > 0) lines.push('')
 
         for (const method of node.methods) {
-          const vis = method.visibility === 'priv' ? 'private' : 'public'
-          const sig = this.buildFnSignature(method.name, method.params, method.returnType)
+          const visPart    = this.emitTypes ? (method.visibility === 'priv' ? 'private ' : 'public ') : ''
+          const staticPart = method.isStatic ? 'static ' : ''
+          const sig  = this.buildFnSignature(method.name, method.params, method.returnType)
           const body = this.block(() => method.body.flatMap(s => this.genNode(s)))
-          lines.push(`${this.ind()}${vis} ${sig} {`)
+          lines.push(`${this.ind()}${visPart}${staticPart}${sig} {`)
           lines.push(...body)
           lines.push(`${this.ind()}}`)
           lines.push('')
@@ -155,7 +155,7 @@ export class CodeGenerator {
         return [`${this.ind()}throw new Error(${this.genExpr(node.expression)});`]
 
       case 'TryCatchStatement': {
-        const tryLines = this.block(() => node.tryBody.flatMap(s => this.genNode(s)))
+        const tryLines   = this.block(() => node.tryBody.flatMap(s => this.genNode(s)))
         const catchLines = this.block(() => node.catchBody.flatMap(s => this.genNode(s)))
         return [
           `${this.ind()}try {`,
@@ -174,9 +174,6 @@ export class CodeGenerator {
     }
   }
 
-  // Emit an anonymous FunctionDeclaration (name === '') as a multi-line arrow function.
-  // Returns the lines WITHOUT a trailing semicolon so they can be embedded inside
-  // argument lists or variable initialisers by the caller.
   private genAnonFnLines(node: FunctionDeclaration): string[] {
     const paramStr = node.params.map(p => {
       const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : ''
@@ -184,7 +181,7 @@ export class CodeGenerator {
     }).join(', ')
     const retStr = this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : ''
     const header = `${this.ind()}(${paramStr})${retStr} => {`
-    const body = this.block(() => node.body.flatMap(s => this.genNode(s)))
+    const body   = this.block(() => node.body.flatMap(s => this.genNode(s)))
     return [header, ...body, `${this.ind()}}`]
   }
 
@@ -202,44 +199,41 @@ export class CodeGenerator {
   }
 
   private genPattern(pattern: MatchCase['pattern']): string {
-    if (typeof pattern === 'string') return JSON.stringify(pattern)
+    if (typeof pattern === 'string')  return JSON.stringify(pattern)
     if (typeof pattern === 'boolean') return String(pattern)
     return String(pattern)
   }
 
   genExpr(node: ASTNode): string {
     switch (node.type) {
-      case 'Identifier':        return node.name
-      case 'StringLiteral':     return JSON.stringify(node.value)
-      case 'NumberLiteral':     return String(node.value)
-      case 'BooleanLiteral':    return String(node.value)
-      case 'NullLiteral':       return 'null'
-      case 'BinaryExpression':  return `${this.genExpr(node.left)} ${node.operator} ${this.genExpr(node.right)}`
-      case 'UnaryExpression':   return `${node.operator}${this.genExpr(node.operand)}`
-      case 'Assignment':        return `${this.genExpr(node.target)} = ${this.genExpr(node.value)}`
-      case 'CompoundAssignment':return `${this.genExpr(node.target)} ${node.operator} ${this.genExpr(node.value)}`
-      case 'PropertyAccess':    return `${this.genExpr(node.object)}.${node.property}`
-      case 'IndexAccess':       return `${this.genExpr(node.object)}[${this.genExpr(node.index)}]`
-      case 'ArrayExpression':   return `[${node.elements.map(e => this.genExpr(e)).join(', ')}]`
-      case 'ObjectExpression':  return `{ ${node.properties.map(p => `${JSON.stringify(p.key)}: ${this.genExpr(p.value)}`).join(', ')} }`
-      case 'NewExpression':     return `new ${node.className}(${node.args.map(a => this.genExpr(a)).join(', ')})`
-      case 'MethodCall':        return `${this.genExpr(node.object)}.${node.method}(${this.genArgExprs(node.args)})`
+      case 'Identifier':         return node.name
+      case 'StringLiteral':      return JSON.stringify(node.value)
+      case 'NumberLiteral':      return String(node.value)
+      case 'BooleanLiteral':     return String(node.value)
+      case 'NullLiteral':        return 'null'
+      case 'BinaryExpression':   return `${this.genExpr(node.left)} ${node.operator} ${this.genExpr(node.right)}`
+      case 'UnaryExpression':    return `${node.operator}${this.genExpr(node.operand)}`
+      case 'Assignment':         return `${this.genExpr(node.target)} = ${this.genExpr(node.value)}`
+      case 'CompoundAssignment': return `${this.genExpr(node.target)} ${node.operator} ${this.genExpr(node.value)}`
+      case 'PropertyAccess':     return `${this.genExpr(node.object)}.${node.property}`
+      case 'IndexAccess':        return `${this.genExpr(node.object)}[${this.genExpr(node.index)}]`
+      case 'ArrayExpression':    return `[${node.elements.map(e => this.genExpr(e)).join(', ')}]`
+      case 'ObjectExpression':   return `{ ${node.properties.map(p => `${JSON.stringify(p.key)}: ${this.genExpr(p.value)}`).join(', ')} }`
+      case 'NewExpression':      return `new ${node.className}(${node.args.map(a => this.genExpr(a)).join(', ')})`
+      case 'MethodCall':         return `${this.genExpr(node.object)}.${node.method}(${this.genArgExprs(node.args)})`
       case 'CallExpression': {
-        // Built-in Prism functions
         if (node.callee === 'log')    return `console.log(${this.genArgExprs(node.args)})`
         if (node.callee === 'panic')  return `(() => { throw new Error(${this.genArgExprs(node.args)}); })()`
         if (node.callee === 'typeOf') return `typeof ${this.genExpr(node.args[0])}`
         return `${node.callee}(${this.genArgExprs(node.args)})`
       }
 
-      // Anonymous function used as an expression (e.g. passed as an argument inline)
       case 'FunctionDeclaration': {
         const paramStr = node.params.map(p => {
           const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : ''
           return `${p.name}${t}`
         }).join(', ')
         const retStr = this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : ''
-        // Flatten the body statements into a single-line block for inline use
         const bodyStatements = node.body.map(s => this.genNode(s).join(' ').trim()).join(' ')
         return `(${paramStr})${retStr} => { ${bodyStatements} }`
       }
@@ -248,8 +242,6 @@ export class CodeGenerator {
     }
   }
 
-  // Generates argument expressions, handling anonymous functions as multi-line
-  // when they are the only argument or when they are the last argument (common pattern).
   private genArgExprs(args: ASTNode[]): string {
     return args.map(a => this.genExpr(a)).join(', ')
   }

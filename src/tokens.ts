@@ -6,6 +6,7 @@ export enum TokenType {
   CLASS = 'CLASS',
   PUB = 'PUB',
   PRIV = 'PRIV',
+  STATIC = 'STATIC',        // ← added
   IF = 'IF',
   ELSE = 'ELSE',
   MATCH = 'MATCH',
@@ -160,6 +161,7 @@ export interface MethodDeclaration {
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
   visibility: 'pub' | 'priv';
+  isStatic: boolean;           // ← added
   body: ASTNode[];
 }
 
