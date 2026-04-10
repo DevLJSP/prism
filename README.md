@@ -1,7 +1,11 @@
+![Human Written](https://img.shields.io/badge/100%25-Human_Written-brightgreen)
+
 # Prism
 
 Prism is a small, expressive language designed to transpile into TypeScript or JavaScript. It supports functions, classes, control flow, imports, typed variables, arrays, objects, and error handling.
 
+![npm](https://img.shields.io/npm/v/prism-lang)
+![downloads](https://img.shields.io/npm/dm/prism-lang)
 ## Status
 
 Prism is a work in progress. The syntax below is based on the current tokenizer and AST structure.
