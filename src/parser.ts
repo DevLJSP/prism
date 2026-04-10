@@ -34,6 +34,8 @@ import {
   ArrayExpression,
   ObjectExpression,
   TryCatchStatement,
+  DoWhileStatement,
+  CForStatement,
 } from "./tokens";
 import { PrismError } from "./lexer";
 
@@ -54,9 +56,21 @@ export class Parser {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  private current(): Token { return this.tokens[this.pos]; }
-  private peek(offset = 1): Token { return this.tokens[this.pos + offset]; }
-  private advance(): Token { return this.tokens[this.pos++]; }
+  private current(): Token {
+    return this.tokens[this.pos];
+  }
+
+  private previous(): Token {
+    return this.tokens[this.pos - 1];
+  }
+
+  private peek(offset = 1): Token {
+    return this.tokens[this.pos + offset];
+  }
+
+  private advance(): Token {
+    return this.tokens[this.pos++];
+  }
 
   private check(...types: TokenType[]): boolean {
     return types.includes(this.current().type);
@@ -81,13 +95,41 @@ export class Parser {
     return this.advance();
   }
 
+  private expectIdentifier(context: string): string {
+    const tok = this.expect(TokenType.IDENTIFIER);
+
+    if (!tok.value || !tok.value.trim()) {
+      throw new PrismError(
+        "Parser",
+        tok.value || "IDENTIFIER",
+        tok.line,
+        tok.column,
+        `Empty identifier in ${context}`,
+      );
+    }
+
+    return tok.value;
+  }
+
   private isTypeToken(): boolean {
     return TYPE_TOKENS.has(this.current().type);
   }
 
   private parseTypeAnnotation(): string {
     const t = this.advance();
+
+    if (!t.value || !t.value.trim()) {
+      throw new PrismError(
+        "Parser",
+        t.value || t.type,
+        t.line,
+        t.column,
+        "Invalid type annotation",
+      );
+    }
+
     let name = t.value;
+
     if (
       this.check(TokenType.LBRACKET) &&
       this.peek().type === TokenType.RBRACKET
@@ -96,6 +138,7 @@ export class Parser {
       this.advance();
       name += "[]";
     }
+
     return name;
   }
 
@@ -113,20 +156,72 @@ export class Parser {
 
   private parseStatement(): ASTNode {
     switch (this.current().type) {
-      case TokenType.USE:    return this.parseImport();
-      case TokenType.FN:     return this.parseFunctionDeclaration();
-      case TokenType.CLASS:  return this.parseClassDeclaration();
-      case TokenType.IF:     return this.parseIf();
-      case TokenType.MATCH:  return this.parseMatch();
-      case TokenType.FOR:    return this.parseFor();
-      case TokenType.WHILE:  return this.parseWhile();
-      case TokenType.SHINE:  return this.parseReturn();
-      case TokenType.SHATTER:return this.parseThrow();
-      case TokenType.TRY:    return this.parseTryCatch();
+      case TokenType.USE:
+        return this.parseImport();
+      case TokenType.FN:
+        return this.parseFunctionDeclaration();
+      case TokenType.CLASS:
+        return this.parseClassDeclaration();
+      case TokenType.IF:
+        return this.parseIf();
+      case TokenType.MATCH:
+        return this.parseMatch();
+      case TokenType.FOR:
+        return this.parseFor();
+      case TokenType.WHILE:
+        return this.parseWhile();
+      case TokenType.SHINE:
+        return this.parseReturn();
+      case TokenType.DO:
+        return this.parseDoWhile();
+      case TokenType.C_FOR:
+        return this.parseCFor();
+      case TokenType.SHATTER:
+        return this.parseThrow();
+      case TokenType.TRY:
+        return this.parseTryCatch();
       case TokenType.FINAL:
-      case TokenType.MUT:    return this.parseVarDecl();
-      default:               return this.parseExpressionStatement();
+      case TokenType.MUT:
+        return this.parseVarDecl();
+      default:
+        return this.parseExpressionStatement();
     }
+  }
+
+  private parseDoWhile(): DoWhileStatement {
+    this.expect(TokenType.DO);
+    const body = this.parseBlock();
+    this.expect(TokenType.WHILE);
+    this.expect(TokenType.LPAREN);
+    const condition = this.parseExpression();
+    this.expect(TokenType.RPAREN);
+    this.match(TokenType.SEMICOLON);
+    return { type: "DoWhileStatement", condition, body };
+  }
+
+  private parseCFor(): CForStatement {
+    this.expect(TokenType.C_FOR);
+    this.expect(TokenType.LPAREN);
+
+    let init: ASTNode | null = null;
+    if (!this.check(TokenType.SEMICOLON)) {
+      if (this.check(TokenType.FINAL, TokenType.MUT)) init = this.parseVarDecl(false);
+      else init = this.parseExpression();
+    }
+
+    this.expect(TokenType.SEMICOLON);
+
+    let condition: ASTNode | null = null;
+    if (!this.check(TokenType.SEMICOLON)) condition = this.parseExpression();
+
+    this.expect(TokenType.SEMICOLON);
+
+    let increment: ASTNode | null = null;
+    if (!this.check(TokenType.RPAREN)) increment = this.parseExpression();
+
+    this.expect(TokenType.RPAREN);
+    const body = this.parseBlock();
+    return { type: "CForStatement", init, condition, increment, body };
   }
 
   private parseImport(): ImportDeclaration {
@@ -137,12 +232,12 @@ export class Parser {
     if (this.check(TokenType.LBRACE)) {
       this.advance();
       while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
-        namedImports.push(this.expect(TokenType.IDENTIFIER).value);
+        namedImports.push(this.expectIdentifier("named import"));
         this.match(TokenType.COMMA);
       }
       this.expect(TokenType.RBRACE);
     } else if (this.check(TokenType.IDENTIFIER)) {
-      defaultImport = this.advance().value;
+      defaultImport = this.expectIdentifier("default import");
     }
 
     this.expect(TokenType.FROM);
@@ -151,27 +246,42 @@ export class Parser {
     return { type: "ImportDeclaration", defaultImport, namedImports, path };
   }
 
-  private parseVarDecl(): VariableDeclaration {
+  private parseVarDecl(consumeSemicolon: boolean = true): VariableDeclaration {
     const isMutable = this.advance().type === TokenType.MUT;
+
     let typeAnnotation: string | undefined;
     if (this.isTypeToken() && this.peek().type === TokenType.IDENTIFIER) {
       typeAnnotation = this.parseTypeAnnotation();
     }
-    const name = this.expect(TokenType.IDENTIFIER).value;
+
+    const name = this.expectIdentifier("variable declaration");
+
     let initializer: ASTNode | undefined;
     if (this.match(TokenType.EQUALS)) {
       initializer = this.parseExpression();
     }
-    this.match(TokenType.SEMICOLON);
-    return { type: "VariableDeclaration", name, typeAnnotation, isMutable, initializer };
+
+    if (consumeSemicolon) {
+      this.match(TokenType.SEMICOLON);
+    }
+
+    return {
+      type: "VariableDeclaration",
+      name,
+      typeAnnotation,
+      isMutable,
+      initializer,
+    };
   }
 
   private parseFunctionDeclaration(): FunctionDeclaration {
     this.expect(TokenType.FN);
-    const name = this.expect(TokenType.IDENTIFIER).value;
+    const name = this.expectIdentifier("function declaration");
     const params = this.parseParamList();
+
     let returnType: string | undefined;
     if (this.match(TokenType.ARROW)) returnType = this.parseTypeAnnotation();
+
     const body = this.parseBlock();
     return { type: "FunctionDeclaration", name, params, returnType, body };
   }
@@ -179,8 +289,10 @@ export class Parser {
   private parseAnonFunction(): FunctionDeclaration {
     this.expect(TokenType.FN);
     const params = this.parseParamList();
+
     let returnType: string | undefined;
     if (this.match(TokenType.ARROW)) returnType = this.parseTypeAnnotation();
+
     const body = this.parseBlock();
     return { type: "FunctionDeclaration", name: "", params, returnType, body };
   }
@@ -188,15 +300,18 @@ export class Parser {
   private parseParamList(): { name: string; typeAnnotation?: string }[] {
     this.expect(TokenType.LPAREN);
     const params: { name: string; typeAnnotation?: string }[] = [];
+
     while (!this.check(TokenType.RPAREN, TokenType.EOF)) {
       let typeAnnotation: string | undefined;
       if (this.isTypeToken() && this.peek().type === TokenType.IDENTIFIER) {
         typeAnnotation = this.parseTypeAnnotation();
       }
-      const paramName = this.expect(TokenType.IDENTIFIER).value;
+
+      const paramName = this.expectIdentifier("parameter");
       params.push({ name: paramName, typeAnnotation });
       this.match(TokenType.COMMA);
     }
+
     this.expect(TokenType.RPAREN);
     return params;
   }
@@ -204,35 +319,39 @@ export class Parser {
   private parseBlock(): ASTNode[] {
     this.expect(TokenType.LBRACE);
     const stmts: ASTNode[] = [];
+
     while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
       stmts.push(this.parseStatement());
     }
+
     this.expect(TokenType.RBRACE);
     return stmts;
   }
 
   private parseClassDeclaration(): ClassDeclaration {
     this.expect(TokenType.CLASS);
-    const name = this.expect(TokenType.IDENTIFIER).value;
+    const name = this.expectIdentifier("class declaration");
     this.expect(TokenType.LBRACE);
 
     const methods: MethodDeclaration[] = [];
     const properties: ClassProperty[] = [];
 
     while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
-      // Parse optional visibility modifier (pub | priv)
       const visTok = this.match(TokenType.PUB, TokenType.PRIV);
       const visibility: "pub" | "priv" =
         visTok?.type === TokenType.PRIV ? "priv" : "pub";
 
-      // Parse optional static modifier                      ← added
       const isStatic = !!this.match(TokenType.STATIC);
 
       if (this.check(TokenType.FN)) {
         const fn = this.parseFunctionDeclaration();
-        methods.push({ ...fn, type: "MethodDeclaration", visibility, isStatic });
+        methods.push({
+          ...fn,
+          type: "MethodDeclaration",
+          visibility,
+          isStatic,
+        });
       } else {
-        // Properties cannot be static (no runtime equivalent without a constructor)
         const mutTok = this.match(TokenType.FINAL, TokenType.MUT);
         const isMutable = mutTok?.type === TokenType.MUT;
 
@@ -241,7 +360,7 @@ export class Parser {
           typeAnnotation = this.parseTypeAnnotation();
         }
 
-        const propName = this.expect(TokenType.IDENTIFIER).value;
+        const propName = this.expectIdentifier("class property");
 
         let initializer: ASTNode | undefined;
         if (this.match(TokenType.EQUALS)) {
@@ -249,7 +368,13 @@ export class Parser {
         }
 
         this.match(TokenType.SEMICOLON);
-        properties.push({ name: propName, typeAnnotation, visibility, initializer, isMutable });
+        properties.push({
+          name: propName,
+          typeAnnotation,
+          visibility,
+          initializer,
+          isMutable,
+        });
       }
     }
 
@@ -261,12 +386,12 @@ export class Parser {
     this.expect(TokenType.IF);
     const condition = this.parseExpression();
     const thenBranch = this.parseBlock();
+
     let elseBranch: ASTNode[] | undefined;
     if (this.match(TokenType.ELSE)) {
-      elseBranch = this.check(TokenType.IF)
-        ? [this.parseIf()]
-        : this.parseBlock();
+      elseBranch = this.check(TokenType.IF) ? [this.parseIf()] : this.parseBlock();
     }
+
     return { type: "IfStatement", condition, thenBranch, elseBranch };
   }
 
@@ -281,15 +406,18 @@ export class Parser {
       const t = this.current();
 
       if (t.type === TokenType.IDENTIFIER && t.value === "_") {
-        this.advance(); pattern = "default";
+        this.advance();
+        pattern = "default";
       } else if (t.type === TokenType.STRING_LITERAL) {
         pattern = this.advance().value;
       } else if (t.type === TokenType.NUMBER_LITERAL) {
         pattern = parseFloat(this.advance().value);
       } else if (t.type === TokenType.TRUE) {
-        this.advance(); pattern = true;
+        this.advance();
+        pattern = true;
       } else if (t.type === TokenType.FALSE) {
-        this.advance(); pattern = false;
+        this.advance();
+        pattern = false;
       } else {
         pattern = this.advance().value;
       }
@@ -298,6 +426,7 @@ export class Parser {
       const body = this.check(TokenType.LBRACE)
         ? this.parseBlock()
         : [this.parseStatement()];
+
       cases.push({ pattern, body });
       this.match(TokenType.COMMA);
     }
@@ -308,7 +437,7 @@ export class Parser {
 
   private parseFor(): ForStatement {
     this.expect(TokenType.FOR);
-    const variable = this.expect(TokenType.IDENTIFIER).value;
+    const variable = this.expectIdentifier("for-in loop");
     this.expect(TokenType.IN);
     const iterable = this.parseExpression();
     const body = this.parseBlock();
@@ -325,9 +454,11 @@ export class Parser {
   private parseReturn(): ReturnStatement {
     this.expect(TokenType.SHINE);
     let value: ASTNode | undefined;
+
     if (!this.check(TokenType.SEMICOLON, TokenType.RBRACE, TokenType.EOF)) {
       value = this.parseExpression();
     }
+
     this.match(TokenType.SEMICOLON);
     return { type: "ReturnStatement", value };
   }
@@ -344,7 +475,7 @@ export class Parser {
     const tryBody = this.parseBlock();
     this.expect(TokenType.CATCH);
     this.expect(TokenType.LPAREN);
-    const catchVar = this.expect(TokenType.IDENTIFIER).value;
+    const catchVar = this.expectIdentifier("catch clause");
     this.expect(TokenType.RPAREN);
     const catchBody = this.parseBlock();
     return { type: "TryCatchStatement", tryBody, catchVar, catchBody };
@@ -358,15 +489,29 @@ export class Parser {
 
   // ─── Expressions ───────────────────────────────────────────────────────────
 
-  private parseExpression(): ASTNode { return this.parseAssignment(); }
+  private parseExpression(): ASTNode {
+    return this.parseAssignment();
+  }
 
   private parseAssignment(): ASTNode {
     const expr = this.parseNullish();
 
-    if (this.check(TokenType.PLUS_EQ, TokenType.MINUS_EQ, TokenType.STAR_EQ, TokenType.SLASH_EQ)) {
+    if (
+      this.check(
+        TokenType.PLUS_EQ,
+        TokenType.MINUS_EQ,
+        TokenType.STAR_EQ,
+        TokenType.SLASH_EQ,
+      )
+    ) {
       const op = this.advance().value;
       const value = this.parseAssignment();
-      return { type: "CompoundAssignment", operator: op, target: expr, value } as CompoundAssignment;
+      return {
+        type: "CompoundAssignment",
+        operator: op,
+        target: expr,
+        value,
+      } as CompoundAssignment;
     }
 
     if (this.match(TokenType.EQUALS)) {
@@ -379,26 +524,98 @@ export class Parser {
 
   private parseBinary(next: () => ASTNode, ...ops: TokenType[]): ASTNode {
     let left = next.call(this);
+
     while (this.check(...ops)) {
       const op = this.advance().value;
-      left = { type: "BinaryExpression", operator: op, left, right: next.call(this) } as BinaryExpression;
+      left = {
+        type: "BinaryExpression",
+        operator: op,
+        left,
+        right: next.call(this),
+      } as BinaryExpression;
     }
+
     return left;
   }
 
-  private parseNullish():    ASTNode { return this.parseBinary(this.parseOr, TokenType.NULLISH); }
-  private parseOr():         ASTNode { return this.parseBinary(this.parseAnd, TokenType.OR); }
-  private parseAnd():        ASTNode { return this.parseBinary(this.parseEquality, TokenType.AND); }
-  private parseEquality():   ASTNode { return this.parseBinary(this.parseRelational, TokenType.EQ_EQ, TokenType.BANG_EQ); }
-  private parseRelational(): ASTNode { return this.parseBinary(this.parseAddSub, TokenType.GT, TokenType.LT, TokenType.GTE, TokenType.LTE); }
-  private parseAddSub():     ASTNode { return this.parseBinary(this.parseMulDiv, TokenType.PLUS, TokenType.MINUS); }
-  private parseMulDiv():     ASTNode { return this.parseBinary(this.parseUnary, TokenType.STAR, TokenType.SLASH); }
+  private parseNullish(): ASTNode {
+    return this.parseBinary(this.parseOr, TokenType.NULLISH);
+  }
+
+  private parseOr(): ASTNode {
+    return this.parseBinary(this.parseAnd, TokenType.OR);
+  }
+
+  private parseAnd(): ASTNode {
+    return this.parseBinary(this.parseEquality, TokenType.AND);
+  }
+
+  private parseEquality(): ASTNode {
+    return this.parseBinary(
+      this.parseRelational,
+      TokenType.EQ_EQ,
+      TokenType.BANG_EQ,
+    );
+  }
+
+  private parseRelational(): ASTNode {
+    return this.parseBinary(
+      this.parseAddSub,
+      TokenType.GT,
+      TokenType.LT,
+      TokenType.GTE,
+      TokenType.LTE,
+    );
+  }
+
+  private parseAddSub(): ASTNode {
+    return this.parseBinary(this.parseMulDiv, TokenType.PLUS, TokenType.MINUS);
+  }
+
+  private parsePow(): ASTNode {
+    let left = this.parseUnary();
+
+    while (this.match(TokenType.POW)) {
+      const op = this.previous().value;
+      const right = this.parseUnary();
+      left = {
+        type: "BinaryExpression",
+        operator: op,
+        left,
+        right,
+      } as BinaryExpression;
+    }
+
+    return left;
+  }
+
+  private parseMulDiv(): ASTNode {
+    let left = this.parsePow();
+
+    while (this.match(TokenType.STAR, TokenType.SLASH, TokenType.MOD)) {
+      const op = this.previous().value;
+      const right = this.parsePow();
+      left = {
+        type: "BinaryExpression",
+        operator: op,
+        left,
+        right,
+      } as BinaryExpression;
+    }
+
+    return left;
+  }
 
   private parseUnary(): ASTNode {
     if (this.check(TokenType.BANG, TokenType.MINUS)) {
       const op = this.advance().value;
-      return { type: "UnaryExpression", operator: op, operand: this.parseUnary() } as UnaryExpression;
+      return {
+        type: "UnaryExpression",
+        operator: op,
+        operand: this.parseUnary(),
+      } as UnaryExpression;
     }
+
     return this.parsePostfix();
   }
 
@@ -407,12 +624,22 @@ export class Parser {
 
     while (true) {
       if (this.match(TokenType.DOT)) {
-        const prop = this.expect(TokenType.IDENTIFIER).value;
+        const prop = this.expectIdentifier("property access");
+
         if (this.check(TokenType.LPAREN)) {
           const args = this.parseArgList();
-          expr = { type: "MethodCall", object: expr, method: prop, args } as MethodCall;
+          expr = {
+            type: "MethodCall",
+            object: expr,
+            method: prop,
+            args,
+          } as MethodCall;
         } else {
-          expr = { type: "PropertyAccess", object: expr, property: prop } as PropertyAccess;
+          expr = {
+            type: "PropertyAccess",
+            object: expr,
+            property: prop,
+          } as PropertyAccess;
         }
       } else if (this.check(TokenType.LBRACKET)) {
         this.advance();
@@ -421,7 +648,11 @@ export class Parser {
         expr = { type: "IndexAccess", object: expr, index } as IndexAccess;
       } else if (this.check(TokenType.LPAREN) && expr.type === "Identifier") {
         const args = this.parseArgList();
-        expr = { type: "CallExpression", callee: (expr as Identifier).name, args } as CallExpression;
+        expr = {
+          type: "CallExpression",
+          callee: (expr as Identifier).name,
+          args,
+        } as CallExpression;
       } else {
         break;
       }
@@ -433,6 +664,7 @@ export class Parser {
   private parseArgList(): ASTNode[] {
     this.expect(TokenType.LPAREN);
     const args: ASTNode[] = [];
+
     while (!this.check(TokenType.RPAREN, TokenType.EOF)) {
       if (this.check(TokenType.FN)) {
         args.push(this.parseAnonFunction());
@@ -441,6 +673,7 @@ export class Parser {
       }
       this.match(TokenType.COMMA);
     }
+
     this.expect(TokenType.RPAREN);
     return args;
   }
@@ -451,7 +684,10 @@ export class Parser {
     switch (t.type) {
       case TokenType.NUMBER_LITERAL:
         this.advance();
-        return { type: "NumberLiteral", value: parseFloat(t.value) } as NumberLiteral;
+        return {
+          type: "NumberLiteral",
+          value: parseFloat(t.value),
+        } as NumberLiteral;
 
       case TokenType.STRING_LITERAL:
         this.advance();
@@ -471,7 +707,7 @@ export class Parser {
 
       case TokenType.NEW: {
         this.advance();
-        const className = this.expect(TokenType.IDENTIFIER).value;
+        const className = this.expectIdentifier("new expression");
         const args = this.parseArgList();
         return { type: "NewExpression", className, args } as NewExpression;
       }
@@ -497,6 +733,17 @@ export class Parser {
           const keyTok = this.check(TokenType.STRING_LITERAL)
             ? this.advance()
             : this.expect(TokenType.IDENTIFIER);
+
+          if (!keyTok.value || !keyTok.value.trim()) {
+            throw new PrismError(
+              "Parser",
+              keyTok.value || keyTok.type,
+              keyTok.line,
+              keyTok.column,
+              "Empty object key",
+            );
+          }
+
           const key = keyTok.value;
           this.expect(TokenType.COLON);
           const value = this.parseExpression();
@@ -516,6 +763,17 @@ export class Parser {
 
       case TokenType.IDENTIFIER:
         this.advance();
+
+        if (!t.value || !t.value.trim()) {
+          throw new PrismError(
+            "Parser",
+            t.value || t.type,
+            t.line,
+            t.column,
+            "Empty identifier",
+          );
+        }
+
         return { type: "Identifier", name: t.value } as Identifier;
 
       default:

@@ -301,6 +301,31 @@ while i < 5 {
 ```
 
 ---
+## Do‑While Loops
+
+Executes the body **at least once** before checking the condition.
+
+```prism
+mut int i = 0
+do {
+  log(i)
+  i += 1
+} while (i < 3)
+```
+
+---
+
+## C‑Style For Loops
+
+In addition to `for ... in ...`, Prism supports a C‑style `for` loop with initializer, condition, and increment.
+
+```prism
+for (mut j = 0; j < 3; j = j + 1) {
+  log(j)
+}
+```
+
+---
 
 ## For Loops
 
@@ -511,6 +536,8 @@ Prism supports the following operators in the current grammar.
 * `-`
 * `*`
 * `/`
+* `%` (remainder/modulo)
+* `**` (exponentiation)
 
 ### Comparison
 

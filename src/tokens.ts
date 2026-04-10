@@ -13,8 +13,10 @@ export enum TokenType {
   SHINE = 'SHINE',
   SHATTER = 'SHATTER',
   FOR = 'FOR',
+  C_FOR = 'C_FOR',
   IN = 'IN',
   WHILE = 'WHILE',
+  DO = 'DO',
   USE = 'USE',
   FROM = 'FROM',
   NEW = 'NEW',
@@ -43,6 +45,8 @@ export enum TokenType {
   MINUS = 'MINUS',
   STAR = 'STAR',
   SLASH = 'SLASH',
+  POW = 'POW',
+  MOD = 'MOD', 
   EQ_EQ = 'EQ_EQ',
   BANG_EQ = 'BANG_EQ',
   GT = 'GT',
@@ -117,7 +121,9 @@ export type ASTNode =
   | ThrowStatement
   | WhileStatement
   | ForStatement
-  | TryCatchStatement;
+  | TryCatchStatement
+  | DoWhileStatement
+  | CForStatement;
 
 export interface Program {
   type: 'Program';
@@ -307,6 +313,19 @@ export interface ForStatement {
   type: 'ForStatement';
   variable: string;
   iterable: ASTNode;
+  body: ASTNode[];
+}
+
+export interface DoWhileStatement {
+  type: 'DoWhileStatement';
+  condition: ASTNode;
+  body: ASTNode[];
+}
+export interface CForStatement {
+  type: 'CForStatement';
+  init: ASTNode | null;
+  condition: ASTNode | null;
+  increment: ASTNode | null;
   body: ASTNode[];
 }
 
