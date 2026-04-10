@@ -165,3 +165,10 @@ server.listen(PORT, fn() -> void {
   log("   GET  /users/:id — Get user by id")
   log("   DELETE /users/:id — Delete user")
 })
+
+if err = server.on("error", fn(any err) -> void {
+  log("Server error: " + err.message)
+}) {
+  log("Failed to start server: " + err.message)
+}
+

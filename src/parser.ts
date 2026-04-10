@@ -7,6 +7,9 @@ import {
   FunctionDeclaration,
   ClassDeclaration,
   MethodDeclaration,
+  ConstructorDeclaration,
+  EnumDeclaration,
+  EnumMember,
   ClassProperty,
   IfStatement,
   MatchStatement,
@@ -36,6 +39,8 @@ import {
   TryCatchStatement,
   DoWhileStatement,
   CForStatement,
+  BreakStatement,
+  ContinueStatement,
 } from "./tokens";
 import { PrismError } from "./lexer";
 
@@ -53,8 +58,6 @@ export class Parser {
   private pos = 0;
 
   constructor(private readonly tokens: Token[]) {}
-
-  // ─── Helpers ───────────────────────────────────────────────────────────────
 
   private current(): Token {
     return this.tokens[this.pos];
@@ -142,7 +145,57 @@ export class Parser {
     return name;
   }
 
-  // ─── Top Level ─────────────────────────────────────────────────────────────
+  private isPropertyNameToken(type: TokenType): boolean {
+    return (
+      type === TokenType.IDENTIFIER ||
+      type === TokenType.USE ||
+      type === TokenType.FN ||
+      type === TokenType.FINAL ||
+      type === TokenType.MUT ||
+      type === TokenType.CLASS ||
+      type === TokenType.PUB ||
+      type === TokenType.PRIV ||
+      type === TokenType.STATIC ||
+      type === TokenType.IF ||
+      type === TokenType.ELSE ||
+      type === TokenType.MATCH ||
+      type === TokenType.SHINE ||
+      type === TokenType.SHATTER ||
+      type === TokenType.FOR ||
+      type === TokenType.C_FOR ||
+      type === TokenType.IN ||
+      type === TokenType.WHILE ||
+      type === TokenType.DO ||
+      type === TokenType.FROM ||
+      type === TokenType.NEW ||
+      type === TokenType.TRUE ||
+      type === TokenType.FALSE ||
+      type === TokenType.NULL ||
+      type === TokenType.TRY ||
+      type === TokenType.CATCH ||
+      type === TokenType.BREAK ||
+      type === TokenType.CONTINUE ||
+      type === TokenType.CONSTRUCTOR ||
+      type === TokenType.ENUM
+    );
+  }
+
+  private expectPropertyName(context: string): string {
+    const tok = this.current();
+
+    if (!this.isPropertyNameToken(tok.type)) {
+      throw new PrismError(
+        "Parser",
+        tok.value || tok.type,
+        tok.line,
+        tok.column,
+        `Expected property name in ${context} but got '${tok.value}' (${tok.type})`,
+      );
+    }
+
+    this.advance();
+    return tok.value;
+  }
 
   parse(): Program {
     const body: ASTNode[] = [];
@@ -152,8 +205,6 @@ export class Parser {
     return { type: "Program", body };
   }
 
-  // ─── Statements ────────────────────────────────────────────────────────────
-
   private parseStatement(): ASTNode {
     switch (this.current().type) {
       case TokenType.USE:
@@ -162,6 +213,8 @@ export class Parser {
         return this.parseFunctionDeclaration();
       case TokenType.CLASS:
         return this.parseClassDeclaration();
+      case TokenType.ENUM:
+        return this.parseEnumDeclaration();
       case TokenType.IF:
         return this.parseIf();
       case TokenType.MATCH:
@@ -180,12 +233,28 @@ export class Parser {
         return this.parseThrow();
       case TokenType.TRY:
         return this.parseTryCatch();
+      case TokenType.BREAK:
+        return this.parseBreak();
+      case TokenType.CONTINUE:
+        return this.parseContinue();
       case TokenType.FINAL:
       case TokenType.MUT:
         return this.parseVarDecl();
       default:
         return this.parseExpressionStatement();
     }
+  }
+
+  private parseBreak(): BreakStatement {
+    this.expect(TokenType.BREAK);
+    this.match(TokenType.SEMICOLON);
+    return { type: "BreakStatement" };
+  }
+
+  private parseContinue(): ContinueStatement {
+    this.expect(TokenType.CONTINUE);
+    this.match(TokenType.SEMICOLON);
+    return { type: "ContinueStatement" };
   }
 
   private parseDoWhile(): DoWhileStatement {
@@ -205,7 +274,8 @@ export class Parser {
 
     let init: ASTNode | null = null;
     if (!this.check(TokenType.SEMICOLON)) {
-      if (this.check(TokenType.FINAL, TokenType.MUT)) init = this.parseVarDecl(false);
+      if (this.check(TokenType.FINAL, TokenType.MUT))
+        init = this.parseVarDecl(false);
       else init = this.parseExpression();
     }
 
@@ -328,6 +398,13 @@ export class Parser {
     return stmts;
   }
 
+  private parseConstructorDeclaration(): ConstructorDeclaration {
+    this.expect(TokenType.CONSTRUCTOR);
+    const params = this.parseParamList();
+    const body = this.parseBlock();
+    return { type: "ConstructorDeclaration", params, body };
+  }
+
   private parseClassDeclaration(): ClassDeclaration {
     this.expect(TokenType.CLASS);
     const name = this.expectIdentifier("class declaration");
@@ -335,8 +412,14 @@ export class Parser {
 
     const methods: MethodDeclaration[] = [];
     const properties: ClassProperty[] = [];
+    let ctor: ConstructorDeclaration | undefined;
 
     while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
+      if (this.check(TokenType.CONSTRUCTOR)) {
+        ctor = this.parseConstructorDeclaration();
+        continue;
+      }
+
       const visTok = this.match(TokenType.PUB, TokenType.PRIV);
       const visibility: "pub" | "priv" =
         visTok?.type === TokenType.PRIV ? "priv" : "pub";
@@ -379,7 +462,36 @@ export class Parser {
     }
 
     this.expect(TokenType.RBRACE);
-    return { type: "ClassDeclaration", name, methods, properties };
+    return {
+      type: "ClassDeclaration",
+      name,
+      methods,
+      properties,
+      constructor: ctor,
+    };
+  }
+
+  private parseEnumDeclaration(): EnumDeclaration {
+    this.expect(TokenType.ENUM);
+    const name = this.expectIdentifier("enum declaration");
+    this.expect(TokenType.LBRACE);
+
+    const members: EnumMember[] = [];
+
+    while (!this.check(TokenType.RBRACE, TokenType.EOF)) {
+      const memberName = this.expectIdentifier("enum member");
+      let initializer: ASTNode | undefined;
+
+      if (this.match(TokenType.EQUALS)) {
+        initializer = this.parseExpression();
+      }
+
+      members.push({ name: memberName, initializer });
+      this.match(TokenType.COMMA);
+    }
+
+    this.expect(TokenType.RBRACE);
+    return { type: "EnumDeclaration", name, members };
   }
 
   private parseIf(): IfStatement {
@@ -389,7 +501,9 @@ export class Parser {
 
     let elseBranch: ASTNode[] | undefined;
     if (this.match(TokenType.ELSE)) {
-      elseBranch = this.check(TokenType.IF) ? [this.parseIf()] : this.parseBlock();
+      elseBranch = this.check(TokenType.IF)
+        ? [this.parseIf()]
+        : this.parseBlock();
     }
 
     return { type: "IfStatement", condition, thenBranch, elseBranch };
@@ -486,8 +600,6 @@ export class Parser {
     this.match(TokenType.SEMICOLON);
     return { type: "ExpressionStatement", expression };
   }
-
-  // ─── Expressions ───────────────────────────────────────────────────────────
 
   private parseExpression(): ASTNode {
     return this.parseAssignment();
@@ -624,7 +736,7 @@ export class Parser {
 
     while (true) {
       if (this.match(TokenType.DOT)) {
-        const prop = this.expectIdentifier("property access");
+        const prop = this.expectPropertyName("property access");
 
         if (this.check(TokenType.LPAREN)) {
           const args = this.parseArgList();
@@ -659,6 +771,70 @@ export class Parser {
     }
 
     return expr;
+  }
+
+  private isArrowFunctionStart(): boolean {
+    if (!this.check(TokenType.LPAREN)) return false;
+
+    let depth = 0;
+    let i = this.pos;
+
+    while (i < this.tokens.length) {
+      const tok = this.tokens[i];
+
+      if (tok.type === TokenType.LPAREN) depth++;
+      else if (tok.type === TokenType.RPAREN) {
+        depth--;
+        if (depth === 0) {
+          return this.tokens[i + 1]?.type === TokenType.FAT_ARROW;
+        }
+      }
+
+      i++;
+    }
+
+    return false;
+  }
+
+  private parseParenArrowFunction(): FunctionDeclaration {
+    this.expect(TokenType.LPAREN);
+
+    const params: { name: string; typeAnnotation?: string }[] = [];
+
+    while (!this.check(TokenType.RPAREN, TokenType.EOF)) {
+      let typeAnnotation: string | undefined;
+
+      if (this.isTypeToken() && this.peek().type === TokenType.IDENTIFIER) {
+        typeAnnotation = this.parseTypeAnnotation();
+      }
+
+      const paramName = this.expectIdentifier("anonymous function parameter");
+      params.push({ name: paramName, typeAnnotation });
+      this.match(TokenType.COMMA);
+    }
+
+    this.expect(TokenType.RPAREN);
+
+    if (!this.match(TokenType.FAT_ARROW)) {
+      const t = this.current();
+      throw new PrismError(
+        "Parser",
+        t.value || t.type,
+        t.line,
+        t.column,
+        `Expected FAT_ARROW but got '${t.value}' (${t.type})`,
+      );
+    }
+
+    const body = this.parseBlock();
+
+    return {
+      type: "FunctionDeclaration",
+      name: "",
+      params,
+      returnType: undefined,
+      body,
+    };
   }
 
   private parseArgList(): ASTNode[] {
@@ -755,6 +931,10 @@ export class Parser {
       }
 
       case TokenType.LPAREN: {
+        if (this.isArrowFunctionStart()) {
+          return this.parseParenArrowFunction();
+        }
+
         this.advance();
         const inner = this.parseExpression();
         this.expect(TokenType.RPAREN);

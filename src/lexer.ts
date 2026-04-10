@@ -9,7 +9,7 @@ Object.assign(KEYWORDS, {
   class: TokenType.CLASS,
   pub: TokenType.PUB,
   priv: TokenType.PRIV,
-  static: TokenType.STATIC, // ← added
+  static: TokenType.STATIC,
   if: TokenType.IF,
   else: TokenType.ELSE,
   match: TokenType.MATCH,
@@ -33,6 +33,10 @@ Object.assign(KEYWORDS, {
   try: TokenType.TRY,
   catch: TokenType.CATCH,
   do: TokenType.DO,
+  break: TokenType.BREAK,
+  continue: TokenType.CONTINUE,
+  constructor: TokenType.CONSTRUCTOR,
+  enum: TokenType.ENUM,
 });
 
 const TWO_CHAR_TOKENS: Record<string, TokenType> = {

@@ -3,7 +3,7 @@ import { Parser } from './parser'
 import { CodeGenerator } from './codegen'
 
 export interface TranspileOptions {
-  emitTypes?: boolean   // default: true (emit TypeScript types)
+  emitTypes?: boolean
   filename?: string
 }
 
@@ -12,9 +12,6 @@ export interface TranspileResult {
   ast?: object
 }
 
-/**
- * Transpile Prism source code to TypeScript (or JS with emitTypes: false)
- */
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const lexer = new Lexer(source)
   const tokens = lexer.tokenize()

@@ -81,6 +81,9 @@ export class CodeGenerator {
 
   private safeIdent(name: string | undefined): string {
     const raw = (name ?? "").trim();
+
+    if (raw === "this" || raw === "super") return raw;
+
     const cached = this.identMap.get(raw);
     if (cached) return cached;
 
@@ -183,6 +186,47 @@ export class CodeGenerator {
         return [`${this.ind()}function ${sig} {`, ...body, `${this.ind()}}`];
       }
 
+      case "EnumDeclaration": {
+        const lines: string[] = [];
+        const members = node.members;
+        const pairs: string[] = [];
+        let autoValue = 0;
+
+        for (const member of members) {
+          if (member.initializer) {
+            const val = this.genExpr(member.initializer);
+            pairs.push(`"${member.name}": ${val}`);
+            if (
+              member.initializer.type === "NumberLiteral" &&
+              typeof member.initializer.value === "number"
+            ) {
+              autoValue = member.initializer.value + 1;
+            } else {
+              autoValue++;
+            }
+          } else {
+            pairs.push(`"${member.name}": ${autoValue}`);
+            autoValue++;
+          }
+        }
+
+        if (this.emitTypes) {
+          lines.push(`${this.ind()}const ${this.safeIdent(node.name)} = Object.freeze({`);
+          for (const pair of pairs) {
+            lines.push(`${this.ind()}  ${pair},`);
+          }
+          lines.push(`${this.ind()}}) as const;`);
+        } else {
+          lines.push(`${this.ind()}const ${this.safeIdent(node.name)} = Object.freeze({`);
+          for (const pair of pairs) {
+            lines.push(`${this.ind()}  ${pair},`);
+          }
+          lines.push(`${this.ind()}});`);
+        }
+
+        return lines;
+      }
+
       case "ClassDeclaration": {
         const lines: string[] = [`${this.ind()}class ${this.safeIdent(node.name)} {`];
         this.indentLevel++;
@@ -205,7 +249,29 @@ export class CodeGenerator {
           );
         }
 
-        if (node.properties.length > 0 && node.methods.length > 0) lines.push("");
+        if (node.properties.length > 0 && (node.constructor || node.methods.length > 0)) {
+          lines.push("");
+        }
+
+        if (node.constructor) {
+          const ctor = node.constructor;
+          const paramStr = ctor.params
+            .map((p) => {
+              const t =
+                this.emitTypes && p.typeAnnotation
+                  ? `: ${mapType(p.typeAnnotation)}`
+                  : "";
+              return `${this.safeIdent(p.name)}${t}`;
+            })
+            .join(", ");
+          lines.push(`${this.ind()}constructor(${paramStr}) {`);
+          const ctorBody = this.block(() =>
+            ctor.body.flatMap((s) => this.genNode(s)),
+          );
+          lines.push(...ctorBody);
+          lines.push(`${this.ind()}}`);
+          if (node.methods.length > 0) lines.push("");
+        }
 
         for (const method of node.methods) {
           const visPart = this.emitTypes
@@ -334,6 +400,12 @@ export class CodeGenerator {
         ];
       }
 
+      case "BreakStatement":
+        return [`${this.ind()}break;`];
+
+      case "ContinueStatement":
+        return [`${this.ind()}continue;`];
+
       case "ExpressionStatement":
         return [`${this.ind()}${this.genExpr(node.expression)};`];
 
@@ -418,7 +490,7 @@ export class CodeGenerator {
         return `${this.genExpr(node.target)} ${node.operator} ${this.genExpr(node.value)}`;
 
       case "PropertyAccess":
-        return `${this.genExpr(node.object)}.${this.safeIdent(node.property)}`;
+        return `${this.genExpr(node.object)}.${node.property}`;
 
       case "IndexAccess":
         return `${this.genExpr(node.object)}[${this.genExpr(node.index)}]`;
@@ -437,7 +509,7 @@ export class CodeGenerator {
           .join(", ")})`;
 
       case "MethodCall":
-        return `${this.genExpr(node.object)}.${this.safeIdent(node.method)}(${this.genArgExprs(node.args)})`;
+        return `${this.genExpr(node.object)}.${node.method}(${this.genArgExprs(node.args)})`;
 
       case "CallExpression": {
         if (node.callee === "log")

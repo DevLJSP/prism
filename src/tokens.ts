@@ -1,12 +1,11 @@
 export enum TokenType {
-  // === PRISM KEYWORDS ===
   FN = 'FN',
   FINAL = 'FINAL',
   MUT = 'MUT',
   CLASS = 'CLASS',
   PUB = 'PUB',
   PRIV = 'PRIV',
-  STATIC = 'STATIC',        // ← added
+  STATIC = 'STATIC',
   IF = 'IF',
   ELSE = 'ELSE',
   MATCH = 'MATCH',
@@ -17,6 +16,8 @@ export enum TokenType {
   IN = 'IN',
   WHILE = 'WHILE',
   DO = 'DO',
+  BREAK = 'BREAK',
+  CONTINUE = 'CONTINUE',
   USE = 'USE',
   FROM = 'FROM',
   NEW = 'NEW',
@@ -25,8 +26,9 @@ export enum TokenType {
   NULL = 'NULL',
   TRY = 'TRY',
   CATCH = 'CATCH',
+  CONSTRUCTOR = 'CONSTRUCTOR',
+  ENUM = 'ENUM',
 
-  // === TYPES ===
   STRING = 'STRING',
   INT = 'INT',
   FLOAT = 'FLOAT',
@@ -34,19 +36,17 @@ export enum TokenType {
   VOID = 'VOID',
   ANY = 'ANY',
 
-  // === IDENTIFIERS & LITERALS ===
   IDENTIFIER = 'IDENTIFIER',
   STRING_LITERAL = 'STRING_LITERAL',
   NUMBER_LITERAL = 'NUMBER_LITERAL',
 
-  // === OPERATORS ===
   EQUALS = 'EQUALS',
   PLUS = 'PLUS',
   MINUS = 'MINUS',
   STAR = 'STAR',
   SLASH = 'SLASH',
   POW = 'POW',
-  MOD = 'MOD', 
+  MOD = 'MOD',
   EQ_EQ = 'EQ_EQ',
   BANG_EQ = 'BANG_EQ',
   GT = 'GT',
@@ -60,13 +60,11 @@ export enum TokenType {
   FAT_ARROW = 'FAT_ARROW',
   NULLISH = 'NULLISH',
 
-  // === COMPOUND ASSIGNMENT ===
   PLUS_EQ = 'PLUS_EQ',
   MINUS_EQ = 'MINUS_EQ',
   STAR_EQ = 'STAR_EQ',
   SLASH_EQ = 'SLASH_EQ',
 
-  // === PUNCTUATORS ===
   LPAREN = 'LPAREN',
   RPAREN = 'RPAREN',
   LBRACE = 'LBRACE',
@@ -78,7 +76,6 @@ export enum TokenType {
   COLON = 'COLON',
   SEMICOLON = 'SEMICOLON',
 
-  // === SPECIAL ===
   EOF = 'EOF',
 }
 
@@ -89,14 +86,14 @@ export interface Token {
   column: number;
 }
 
-// AST Node Types
-
 export type ASTNode =
   | Program
   | VariableDeclaration
   | FunctionDeclaration
   | ClassDeclaration
   | MethodDeclaration
+  | ConstructorDeclaration
+  | EnumDeclaration
   | CallExpression
   | MethodCall
   | NewExpression
@@ -123,7 +120,9 @@ export type ASTNode =
   | ForStatement
   | TryCatchStatement
   | DoWhileStatement
-  | CForStatement;
+  | CForStatement
+  | BreakStatement
+  | ContinueStatement;
 
 export interface Program {
   type: 'Program';
@@ -151,6 +150,7 @@ export interface ClassDeclaration {
   name: string;
   methods: MethodDeclaration[];
   properties: ClassProperty[];
+  constructor?: ConstructorDeclaration;
 }
 
 export interface ClassProperty {
@@ -167,8 +167,25 @@ export interface MethodDeclaration {
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
   visibility: 'pub' | 'priv';
-  isStatic: boolean;           // ← added
+  isStatic: boolean;
   body: ASTNode[];
+}
+
+export interface ConstructorDeclaration {
+  type: 'ConstructorDeclaration';
+  params: { name: string; typeAnnotation?: string }[];
+  body: ASTNode[];
+}
+
+export interface EnumMember {
+  name: string;
+  initializer?: ASTNode;
+}
+
+export interface EnumDeclaration {
+  type: 'EnumDeclaration';
+  name: string;
+  members: EnumMember[];
 }
 
 export interface CallExpression {
@@ -236,7 +253,7 @@ export interface Assignment {
 
 export interface CompoundAssignment {
   type: 'CompoundAssignment';
-  operator: string; // '+=' | '-=' | '*=' | '/='
+  operator: string;
   target: ASTNode;
   value: ASTNode;
 }
@@ -321,6 +338,7 @@ export interface DoWhileStatement {
   condition: ASTNode;
   body: ASTNode[];
 }
+
 export interface CForStatement {
   type: 'CForStatement';
   init: ASTNode | null;
@@ -334,4 +352,12 @@ export interface TryCatchStatement {
   tryBody: ASTNode[];
   catchVar: string;
   catchBody: ASTNode[];
+}
+
+export interface BreakStatement {
+  type: 'BreakStatement';
+}
+
+export interface ContinueStatement {
+  type: 'ContinueStatement';
 }

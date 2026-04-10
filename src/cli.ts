@@ -2,7 +2,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import { spawnSync } from "child_process";
-import { pathToFileURL } from "url";
 import { transpile } from "./index";
 import { PrismError } from "./lexer";
 
@@ -13,7 +12,7 @@ const BANNER = `
  ██╔═══╝ ██╔══██╗██║╚════██║██║╚██╔╝██║
  ██║     ██║  ██║██║███████║██║ ╚═╝ ██║
  ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝╚═╝     ╚═╝
- v0.1.3 — "Light bends. Your code doesn't have to."
+ v0.1.4 — "Light bends. Your code doesn't have to."
 `;
 
 function printHelp(): void {
@@ -83,6 +82,23 @@ function assertNoInvalidGeneratedCode(code: string): void {
   }
 }
 
+function summarizeNodeError(stderr: string): string {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const important = lines.find((line) =>
+    /^(ReferenceError|SyntaxError|TypeError|RangeError|Error):/.test(line),
+  );
+
+  if (important) return important;
+
+  if (lines.length > 0) return lines[0];
+
+  return "runtime error";
+}
+
 function runGeneratedCode(code: string): void {
   const tmp = path.join(process.cwd(), `.prism_tmp_${Date.now()}.mjs`);
   const stopCleanup = createTempCleanup(tmp);
@@ -93,20 +109,22 @@ function runGeneratedCode(code: string): void {
     fs.writeFileSync(tmp, code, "utf-8");
 
     const result = spawnSync(process.execPath, [tmp], {
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
       shell: false,
     });
 
-    if (result.error) {
-      throw result.error;
+    if (result.stdout) {
+      process.stdout.write(result.stdout);
     }
 
-    if (result.signal === "SIGINT" || result.status === 130) {
-      return;
+    if (result.error) {
+      throw new Error(result.error.message);
     }
 
     if ((result.status ?? 0) !== 0) {
-      process.exit(result.status ?? 1);
+      const msg = summarizeNodeError(result.stderr || "");
+      throw new Error(msg);
     }
   } finally {
     stopCleanup();
@@ -144,7 +162,9 @@ function main(): void {
   const source = fs.readFileSync(inputFile, "utf-8");
 
   try {
-    const result = transpile(source, { emitTypes: !emitJs });
+    const result = transpile(source, {
+      emitTypes: command === "compile" ? !emitJs : false,
+    });
 
     if (command === "check") {
       console.log(`✅ ${inputFile} parsed successfully.`);
