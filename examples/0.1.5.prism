@@ -1,0 +1,79 @@
+enum Direction {
+Up,
+Down,
+Left,
+Right
+}
+
+class Player {
+pub final string name
+pub mut int score
+pub final bool alive = true
+
+constructor(string name, int score) {
+this.name = name
+this.score = score
+}
+
+fn addScore(int amount) -> void {
+this.score += amount
+}
+
+fn describe() -> string {
+shine this.name + " (" + this.score + ")"
+}
+}
+
+fn makeGreeter(string prefix) -> any {
+shine (string name) => {
+shine prefix + ", " + name
+}
+}
+
+fn sumUntil(int limit) -> int {
+mut int total = 0
+
+for (mut int i = 0; i < limit; i += 1) {
+if i == 3 {
+continue
+}
+
+if i == 8 {
+  break
+}
+
+total += i
+
+}
+
+shine total
+}
+
+fn main() -> void {
+log("=== Prism feature test ===")
+
+final any player = new Player("Prism", 10)
+log(player.describe())
+
+final any greeter = makeGreeter("Hello")
+log(greeter("world"))
+
+log("=== Enum test ===")
+log(Direction.Up)
+log(Direction.Down)
+
+log("=== C-style for + break/continue ===")
+log(sumUntil(10))
+
+log("=== Array + arrow callback ===")
+final any doubled = [1, 2, 3, 4].map((int n) => {
+shine n * 2
+})
+log(doubled)
+
+log("=== Property access test ===")
+log(player.name)
+log(player.score)
+}
+
+main()

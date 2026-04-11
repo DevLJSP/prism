@@ -28,6 +28,11 @@ export enum TokenType {
   CATCH = 'CATCH',
   CONSTRUCTOR = 'CONSTRUCTOR',
   ENUM = 'ENUM',
+  EXPORT = 'EXPORT',
+  INTERFACE = 'INTERFACE',
+  IMPLEMENTS = 'IMPLEMENTS',
+  EXTENDS = 'EXTENDS',
+  AS = 'AS',
 
   STRING = 'STRING',
   INT = 'INT',
@@ -94,6 +99,8 @@ export type ASTNode =
   | MethodDeclaration
   | ConstructorDeclaration
   | EnumDeclaration
+  | ExportDeclaration
+  | InterfaceDeclaration
   | CallExpression
   | MethodCall
   | NewExpression
@@ -135,22 +142,32 @@ export interface VariableDeclaration {
   typeAnnotation?: string;
   isMutable: boolean;
   initializer?: ASTNode;
+  line?: number;
+  col?: number;
 }
 
 export interface FunctionDeclaration {
   type: 'FunctionDeclaration';
   name: string;
+  typeParams?: string[];
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
   body: ASTNode[];
+  line?: number;
+  col?: number;
 }
 
 export interface ClassDeclaration {
   type: 'ClassDeclaration';
   name: string;
+  typeParams?: string[];
+  extendsClass?: string;
+  implementsInterfaces?: string[];
   methods: MethodDeclaration[];
   properties: ClassProperty[];
   constructor?: ConstructorDeclaration;
+  line?: number;
+  col?: number;
 }
 
 export interface ClassProperty {
@@ -164,6 +181,7 @@ export interface ClassProperty {
 export interface MethodDeclaration {
   type: 'MethodDeclaration';
   name: string;
+  typeParams?: string[];
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
   visibility: 'pub' | 'priv';
@@ -186,6 +204,57 @@ export interface EnumDeclaration {
   type: 'EnumDeclaration';
   name: string;
   members: EnumMember[];
+  line?: number;
+  col?: number;
+}
+
+export interface ExportDeclaration {
+  type: 'ExportDeclaration';
+  declaration: ASTNode;
+  isDefault: boolean;
+  line?: number;
+  col?: number;
+}
+
+export interface InterfaceProperty {
+  name: string;
+  typeAnnotation?: string;
+  optional?: boolean;
+  readonly?: boolean;
+}
+
+export interface InterfaceMethod {
+  name: string;
+  typeParams?: string[];
+  params: { name: string; typeAnnotation?: string }[];
+  returnType?: string;
+  optional?: boolean;
+}
+
+export interface InterfaceDeclaration {
+  type: 'InterfaceDeclaration';
+  name: string;
+  typeParams?: string[];
+  extendsInterfaces?: string[];
+  methods: InterfaceMethod[];
+  properties: InterfaceProperty[];
+  line?: number;
+  col?: number;
+}
+
+export interface NamedImport {
+  name: string;
+  alias?: string;
+}
+
+export interface ImportDeclaration {
+  type: 'ImportDeclaration';
+  defaultImport?: string;
+  defaultAlias?: string;
+  namedImports: NamedImport[];
+  path: string;
+  line?: number;
+  col?: number;
 }
 
 export interface CallExpression {
@@ -279,18 +348,13 @@ export interface MatchStatement {
 export interface ReturnStatement {
   type: 'ReturnStatement';
   value?: ASTNode;
+  line?: number;
 }
 
 export interface ExpressionStatement {
   type: 'ExpressionStatement';
   expression: ASTNode;
-}
-
-export interface ImportDeclaration {
-  type: 'ImportDeclaration';
-  defaultImport?: string;
-  namedImports: string[];
-  path: string;
+  line?: number;
 }
 
 export interface PropertyAccess {

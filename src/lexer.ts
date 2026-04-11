@@ -37,6 +37,11 @@ Object.assign(KEYWORDS, {
   continue: TokenType.CONTINUE,
   constructor: TokenType.CONSTRUCTOR,
   enum: TokenType.ENUM,
+  export: TokenType.EXPORT,
+  interface: TokenType.INTERFACE,
+  implements: TokenType.IMPLEMENTS,
+  extends: TokenType.EXTENDS,
+  as: TokenType.AS,
 });
 
 const TWO_CHAR_TOKENS: Record<string, TokenType> = {
@@ -86,8 +91,12 @@ export class PrismError extends Error {
     public readonly col: number,
     public readonly detail: string,
   ) {
-    super(`error at "${token}" line:${line}\n  [${phase}] ${detail}`);
+    super(`[${phase}] error at "${token}" (line ${line}, col ${col})\n  ${detail}`);
     this.name = "PrismError";
+  }
+
+  format(filename = "<source>"): string {
+    return `\nprism: ${filename}:${this.line}:${this.col}: ${this.phase.toLowerCase()} error\n  ${this.detail}\n  near: "${this.token}"\n`;
   }
 }
 
@@ -125,8 +134,7 @@ export class Lexer {
         continue;
       }
       if (ch === "/" && this.peek(1) === "/") {
-        while (this.pos < this.source.length && this.peek() !== "\n")
-          this.advance();
+        while (this.pos < this.source.length && this.peek() !== "\n") this.advance();
         continue;
       }
       if (ch === "/" && this.peek(1) === "*") {
@@ -147,8 +155,8 @@ export class Lexer {
   }
 
   private readString(quote: string): Token {
-    const line = this.line,
-      column = this.col;
+    const line = this.line;
+    const column = this.col;
     this.advance();
     let value = "";
     while (this.pos < this.source.length && this.peek() !== quote) {
@@ -156,44 +164,37 @@ export class Lexer {
         this.advance();
         const esc = this.advance();
         const escMap: Record<string, string> = {
-          n: "\n",
-          t: "\t",
-          r: "\r",
-          "\\": "\\",
-          '"': '"',
-          "'": "'",
+          n: "\n", t: "\t", r: "\r",
+          "\\": "\\", '"': '"', "'": "'",
         };
         value += escMap[esc] ?? "\\" + esc;
       } else {
         value += this.advance();
       }
     }
-    if (this.pos >= this.source.length)
-      this.error(
-        quote,
-        "Unterminated string literal — missing closing " + quote,
-      );
+    if (this.pos >= this.source.length) {
+      this.error(quote, `Unterminated string literal — missing closing ${quote}`);
+    }
     this.advance();
     return { type: TokenType.STRING_LITERAL, value, line, column };
   }
 
   private readNumber(): Token {
-    const line = this.line,
-      column = this.col;
+    const line = this.line;
+    const column = this.col;
     let value = "";
     let dots = 0;
     while (this.pos < this.source.length && /[0-9.]/.test(this.peek())) {
       if (this.peek() === ".") dots++;
-      if (dots > 1)
-        this.error(value, "Malformed number — multiple decimal points");
+      if (dots > 1) this.error(value, "Malformed number — multiple decimal points");
       value += this.advance();
     }
     return { type: TokenType.NUMBER_LITERAL, value, line, column };
   }
 
   private readIdentOrKeyword(): Token {
-    const line = this.line,
-      column = this.col;
+    const line = this.line;
+    const column = this.col;
     let value = "";
     while (this.pos < this.source.length && /[a-zA-Z0-9_]/.test(this.peek())) {
       value += this.advance();
@@ -233,8 +234,8 @@ export class Lexer {
         continue;
       }
 
-      const line = this.line,
-        column = this.col;
+      const line = this.line;
+      const column = this.col;
       const first = this.advance();
       const two = first + this.peek();
 
@@ -245,24 +246,14 @@ export class Lexer {
       }
 
       if (ONE_CHAR_TOKENS[first]) {
-        tokens.push({
-          type: ONE_CHAR_TOKENS[first],
-          value: first,
-          line,
-          column,
-        });
+        tokens.push({ type: ONE_CHAR_TOKENS[first], value: first, line, column });
         continue;
       }
 
       this.error(first, `Unrecognized character '${first}'`);
     }
 
-    tokens.push({
-      type: TokenType.EOF,
-      value: "",
-      line: this.line,
-      column: this.col,
-    });
+    tokens.push({ type: TokenType.EOF, value: "", line: this.line, column: this.col });
     return tokens;
   }
 }
