@@ -301,4 +301,4 @@ examples/
 
 ## License
 
-Add your project license here.
+MIT
