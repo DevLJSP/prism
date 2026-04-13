@@ -1,0 +1,31 @@
+async fn fail() -> any {
+  shatter "error test"
+}
+
+async fn safe() -> any {
+  try {
+    await fail()
+    shine "should not reach"
+  } catch (e) {
+    shine "caught: " + e
+  }
+}
+
+async fn main() -> void {
+  log("=== async edge cases ===")
+
+  final any result = await safe()
+  log(result)
+
+  final any arr = [1, 2, 3]
+
+  final any mapped = await Promise.all(
+    arr.map(async (n) => {
+      shine n * 2
+    })
+  )
+
+  log(mapped)
+}
+
+main()

@@ -91,6 +91,7 @@ export class Formatter {
 
       case "FunctionDeclaration": {
         this.blank();
+        const asyncPrefix = node.isAsync ? "async " : "";
         const tParams =
           node.typeParams && node.typeParams.length > 0
             ? `<${node.typeParams.join(", ")}>`
@@ -99,7 +100,7 @@ export class Formatter {
           .map((p) => (p.typeAnnotation ? `${p.typeAnnotation} ${p.name}` : p.name))
           .join(", ");
         const ret = node.returnType ? ` -> ${node.returnType}` : "";
-        this.emit(`fn ${node.name}${tParams}(${params})${ret} {`);
+        this.emit(`${asyncPrefix}fn ${node.name}${tParams}(${params})${ret} {`);
         this.fmtBlock(node.body);
         this.emit("}");
         this.blank();
@@ -142,6 +143,7 @@ export class Formatter {
           this.blank();
           const vis = method.visibility === "priv" ? "priv " : "pub ";
           const stat = method.isStatic ? "static " : "";
+          const asyncPrefix = method.isAsync ? "async " : "";
           const tP =
             method.typeParams && method.typeParams.length > 0
               ? `<${method.typeParams.join(", ")}>`
@@ -150,7 +152,7 @@ export class Formatter {
             .map((p) => (p.typeAnnotation ? `${p.typeAnnotation} ${p.name}` : p.name))
             .join(", ");
           const ret = method.returnType ? ` -> ${method.returnType}` : "";
-          this.emit(`${vis}${stat}fn ${method.name}${tP}(${params})${ret} {`);
+          this.emit(`${vis}${stat}${asyncPrefix}fn ${method.name}${tP}(${params})${ret} {`);
           this.fmtBlock(method.body);
           this.emit("}");
         }
@@ -370,6 +372,8 @@ export class Formatter {
         return String(node.value);
       case "NullLiteral":
         return "null";
+      case "AwaitExpression":
+        return `await ${this.fmtExpr(node.expression)}`;
       case "BinaryExpression":
         return `${this.fmtExpr(node.left)} ${node.operator} ${this.fmtExpr(node.right)}`;
       case "UnaryExpression":
@@ -393,6 +397,7 @@ export class Formatter {
       case "CallExpression":
         return `${node.callee}(${node.args.map((a) => this.fmtExpr(a)).join(", ")})`;
       case "FunctionDeclaration": {
+        const asyncPrefix = node.isAsync ? "async " : "";
         const params = node.params
           .map((p) => (p.typeAnnotation ? `${p.typeAnnotation} ${p.name}` : p.name))
           .join(", ");
@@ -408,7 +413,7 @@ export class Formatter {
           this.indentLevel = savedIndent;
           return result;
         });
-        return `fn(${params})${ret} { ${bodyParts.join(" ")} }`;
+        return `${asyncPrefix}fn(${params})${ret} { ${bodyParts.join(" ")} }`;
       }
       default:
         return `/* expr:${(node as ASTNode).type} */`;

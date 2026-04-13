@@ -42,6 +42,8 @@ Object.assign(KEYWORDS, {
   implements: TokenType.IMPLEMENTS,
   extends: TokenType.EXTENDS,
   as: TokenType.AS,
+  async: TokenType.ASYNC,
+  await: TokenType.AWAIT,
 });
 
 const TWO_CHAR_TOKENS: Record<string, TokenType> = {

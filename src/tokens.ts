@@ -33,6 +33,8 @@ export enum TokenType {
   IMPLEMENTS = 'IMPLEMENTS',
   EXTENDS = 'EXTENDS',
   AS = 'AS',
+  ASYNC = 'ASYNC',
+  AWAIT = 'AWAIT',
 
   STRING = 'STRING',
   INT = 'INT',
@@ -111,6 +113,7 @@ export type ASTNode =
   | NullLiteral
   | BinaryExpression
   | UnaryExpression
+  | AwaitExpression
   | Assignment
   | CompoundAssignment
   | IfStatement
@@ -149,6 +152,7 @@ export interface VariableDeclaration {
 export interface FunctionDeclaration {
   type: 'FunctionDeclaration';
   name: string;
+  isAsync: boolean;
   typeParams?: string[];
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
@@ -181,6 +185,7 @@ export interface ClassProperty {
 export interface MethodDeclaration {
   type: 'MethodDeclaration';
   name: string;
+  isAsync: boolean;
   typeParams?: string[];
   params: { name: string; typeAnnotation?: string }[];
   returnType?: string;
@@ -312,6 +317,13 @@ export interface UnaryExpression {
   type: 'UnaryExpression';
   operator: string;
   operand: ASTNode;
+}
+
+export interface AwaitExpression {
+  type: 'AwaitExpression';
+  expression: ASTNode;
+  line?: number;
+  col?: number;
 }
 
 export interface Assignment {
