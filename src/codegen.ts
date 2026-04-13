@@ -77,13 +77,17 @@ export class CodeGenerator {
   constructor(options: { emitTypes?: boolean } = {}) {
     this.emitTypes = options.emitTypes ?? true;
 
-    this.preambles.push(
-      `
-const _throw = (err: any): never => {
-  throw err instanceof Error ? err : new Error(String(err));
-};
-`.trim(),
-    );
+    // FIX 1 & 3: Emit _throw helper with correct syntax for JS vs TS mode.
+    // TypeScript form uses type annotations; JavaScript form must not.
+    if (this.emitTypes) {
+      this.preambles.push(
+        `const _throw = (err: any): never => { throw err instanceof Error ? err : new Error(String(err)); };`,
+      );
+    } else {
+      this.preambles.push(
+        `const _throw = (err) => { throw err instanceof Error ? err : new Error(String(err)); };`,
+      );
+    }
   }
 
   private ind(): string {
@@ -301,6 +305,7 @@ const _throw = (err: any): never => {
 
       case "FunctionDeclaration": {
         if (!node.name) {
+          // Anonymous function used as a statement — emit as arrow function block.
           return this.genAnonFnLines(node);
         }
         const asyncPrefix = node.isAsync ? "async " : "";
@@ -537,15 +542,15 @@ const _throw = (err: any): never => {
 
       case "ThrowStatement":
         return [
-          `${this.ind()}throw new Error(${this.genExpr(node.expression)});`,
+          `${this.ind()}_throw(${this.genExpr(node.expression)});`,
         ];
 
       case "TryCatchStatement": {
         const tryLines = this.block(() =>
-          node.tryBody.flatMap((s) => this.genNode(s)),
+          (node.tryBody ?? []).flatMap((s) => this.genNode(s)),
         );
         const catchLines = this.block(() =>
-          node.catchBody.flatMap((s) => this.genNode(s)),
+          (node.catchBody ?? []).flatMap((s) => this.genNode(s)),
         );
         return [
           `${this.ind()}try {`,
@@ -692,6 +697,7 @@ const _throw = (err: any): never => {
           this.emitTypes && node.returnType
             ? `: ${mapType(node.returnType)}`
             : "";
+
         const bodyStatements = node.body
           .map((s) => this.genNode(s).join(" ").trim())
           .join(" ");

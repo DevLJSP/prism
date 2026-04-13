@@ -16,7 +16,7 @@ const BANNER = `
  ██╔═══╝ ██╔══██╗██║╚════██║██║╚██╔╝██║
  ██║     ██║  ██║██║███████║██║ ╚═╝ ██║
  ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝╚═╝     ╚═╝
- v0.1.5 — "Light bends. Your code doesn't have to."
+ v0.1.6 — "Light bends. Your code doesn't have to."
 `;
 
 function printHelp(): void {
