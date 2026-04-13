@@ -35,6 +35,7 @@ import {
   NullLiteral,
   BinaryExpression,
   UnaryExpression,
+  AwaitExpression,
   Assignment,
   CompoundAssignment,
   PropertyAccess,
@@ -216,7 +217,9 @@ export class Parser {
       type === TokenType.INTERFACE ||
       type === TokenType.IMPLEMENTS ||
       type === TokenType.EXTENDS ||
-      type === TokenType.AS
+      type === TokenType.AS ||
+      type === TokenType.ASYNC ||
+      type === TokenType.AWAIT
     );
   }
 
@@ -251,8 +254,10 @@ export class Parser {
         return this.parseExport();
       case TokenType.INTERFACE:
         return this.parseInterfaceDeclaration();
+      case TokenType.ASYNC:
+        return this.parseAsyncStatement();
       case TokenType.FN:
-        return this.parseFunctionDeclaration();
+        return this.parseFunctionDeclaration(false);
       case TokenType.CLASS:
         return this.parseClassDeclaration();
       case TokenType.ENUM:
@@ -285,6 +290,21 @@ export class Parser {
       default:
         return this.parseExpressionStatement();
     }
+  }
+
+  private parseAsyncStatement(): ASTNode {
+    const startTok = this.current();
+    this.expect(TokenType.ASYNC);
+    if (this.check(TokenType.FN)) {
+      return this.parseFunctionDeclaration(true, startTok);
+    }
+    throw new PrismError(
+      "Parser",
+      this.current().value || this.current().type,
+      this.current().line,
+      this.current().column,
+      `Expected 'fn' after 'async' but got '${this.current().value}'`,
+    );
   }
 
   private parseBreak(): BreakStatement {
@@ -347,8 +367,22 @@ export class Parser {
 
     let declaration: ASTNode;
     switch (this.current().type) {
+      case TokenType.ASYNC: {
+        this.advance();
+        if (!this.check(TokenType.FN)) {
+          throw new PrismError(
+            "Parser",
+            this.current().value,
+            this.current().line,
+            this.current().column,
+            `Expected 'fn' after 'async' in export`,
+          );
+        }
+        declaration = this.parseFunctionDeclaration(true);
+        break;
+      }
       case TokenType.FN:
-        declaration = this.parseFunctionDeclaration();
+        declaration = this.parseFunctionDeclaration(false);
         break;
       case TokenType.CLASS:
         declaration = this.parseClassDeclaration();
@@ -447,8 +481,8 @@ export class Parser {
     };
   }
 
-  private parseFunctionDeclaration(): FunctionDeclaration {
-    const startTok = this.current();
+  private parseFunctionDeclaration(isAsync: boolean, startTokOverride?: Token): FunctionDeclaration {
+    const startTok = startTokOverride ?? this.current();
     this.expect(TokenType.FN);
     const name = this.expectIdentifier("function declaration");
     const typeParams = this.parseTypeParams();
@@ -461,6 +495,7 @@ export class Parser {
     return {
       type: "FunctionDeclaration",
       name,
+      isAsync,
       typeParams,
       params,
       returnType,
@@ -470,7 +505,7 @@ export class Parser {
     };
   }
 
-  private parseAnonFunction(): FunctionDeclaration {
+  private parseAnonFunction(isAsync = false): FunctionDeclaration {
     this.expect(TokenType.FN);
     const typeParams = this.parseTypeParams();
     const params = this.parseParamList();
@@ -479,7 +514,7 @@ export class Parser {
     if (this.match(TokenType.ARROW)) returnType = this.parseTypeAnnotation();
 
     const body = this.parseBlock();
-    return { type: "FunctionDeclaration", name: "", typeParams, params, returnType, body };
+    return { type: "FunctionDeclaration", name: "", isAsync, typeParams, params, returnType, body };
   }
 
   private parseParamList(): { name: string; typeAnnotation?: string }[] {
@@ -553,10 +588,11 @@ export class Parser {
       const visTok = this.match(TokenType.PUB, TokenType.PRIV);
       const visibility: "pub" | "priv" = visTok?.type === TokenType.PRIV ? "priv" : "pub";
       const isStatic = !!this.match(TokenType.STATIC);
+      const isAsync = !!this.match(TokenType.ASYNC);
 
       if (this.check(TokenType.FN)) {
-        const fn = this.parseFunctionDeclaration();
-        methods.push({ ...fn, type: "MethodDeclaration", visibility, isStatic });
+        const fn = this.parseFunctionDeclaration(isAsync);
+        methods.push({ ...fn, type: "MethodDeclaration", visibility, isStatic, isAsync });
       } else {
         const mutTok = this.match(TokenType.FINAL, TokenType.MUT);
         const isMutable = mutTok?.type === TokenType.MUT;
@@ -853,6 +889,13 @@ export class Parser {
   }
 
   private parseUnary(): ASTNode {
+    if (this.check(TokenType.AWAIT)) {
+      const tok = this.current();
+      this.advance();
+      const expression = this.parseUnary();
+      return { type: "AwaitExpression", expression, line: tok.line, col: tok.column } as AwaitExpression;
+    }
+
     if (this.check(TokenType.BANG, TokenType.MINUS)) {
       const op = this.advance().value;
       return { type: "UnaryExpression", operator: op, operand: this.parseUnary() } as UnaryExpression;
@@ -911,7 +954,7 @@ export class Parser {
     return false;
   }
 
-  private parseParenArrowFunction(): FunctionDeclaration {
+  private parseParenArrowFunction(isAsync = false): FunctionDeclaration {
     this.expect(TokenType.LPAREN);
     const params: { name: string; typeAnnotation?: string }[] = [];
 
@@ -933,7 +976,7 @@ export class Parser {
     }
 
     const body = this.parseBlock();
-    return { type: "FunctionDeclaration", name: "", params, returnType: undefined, body };
+    return { type: "FunctionDeclaration", name: "", isAsync, params, returnType: undefined, body };
   }
 
   private parseArgList(): ASTNode[] {
@@ -943,6 +986,21 @@ export class Parser {
     while (!this.check(TokenType.RPAREN, TokenType.EOF)) {
       if (this.check(TokenType.FN)) {
         args.push(this.parseAnonFunction());
+      } else if (this.check(TokenType.ASYNC)) {
+        this.advance();
+        if (this.check(TokenType.FN)) {
+          args.push(this.parseAnonFunction(true));
+        } else if (this.isArrowFunctionStart()) {
+          args.push(this.parseParenArrowFunction(true));
+        } else {
+          throw new PrismError(
+            "Parser",
+            this.current().value,
+            this.current().line,
+            this.current().column,
+            `Expected 'fn' or arrow function after 'async'`,
+          );
+        }
       } else {
         args.push(this.parseExpression());
       }
@@ -985,7 +1043,24 @@ export class Parser {
       }
 
       case TokenType.FN:
-        return this.parseAnonFunction();
+        return this.parseAnonFunction(false);
+
+      case TokenType.ASYNC: {
+        this.advance();
+        if (this.check(TokenType.FN)) {
+          return this.parseAnonFunction(true);
+        }
+        if (this.isArrowFunctionStart()) {
+          return this.parseParenArrowFunction(true);
+        }
+        throw new PrismError(
+          "Parser",
+          this.current().value || this.current().type,
+          this.current().line,
+          this.current().column,
+          `Expected 'fn' or arrow function after 'async'`,
+        );
+      }
 
       case TokenType.LBRACKET: {
         this.advance();
@@ -1021,7 +1096,7 @@ export class Parser {
 
       case TokenType.LPAREN: {
         if (this.isArrowFunctionStart()) {
-          return this.parseParenArrowFunction();
+          return this.parseParenArrowFunction(false);
         }
         this.advance();
         const inner = this.parseExpression();

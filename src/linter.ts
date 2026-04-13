@@ -6,6 +6,7 @@ import {
   TryCatchStatement,
   BinaryExpression,
   ClassDeclaration,
+  AwaitExpression,
 } from "./tokens";
 
 export type DiagnosticSeverity = "error" | "warning" | "info";
@@ -24,7 +25,7 @@ export class Linter {
   lint(program: Program): LintDiagnostic[] {
     this.diagnostics = [];
     for (const node of program.body) {
-      this.walkNode(node, null);
+      this.walkNode(node, null, false);
     }
     return this.diagnostics;
   }
@@ -39,14 +40,15 @@ export class Linter {
     this.diagnostics.push({ severity, code, message, line: line ?? 0, col: col ?? 0 });
   }
 
-  private walkNode(node: ASTNode, parentFn: FunctionDeclaration | null): void {
+  private walkNode(node: ASTNode, parentFn: FunctionDeclaration | null, insideAsync: boolean): void {
     switch (node.type) {
       case "FunctionDeclaration":
-        this.checkFunction(node);
+        this.checkFunction(node, insideAsync);
         break;
 
       case "VariableDeclaration":
         this.checkVariable(node);
+        if (node.initializer) this.walkNode(node.initializer, parentFn, insideAsync);
         break;
 
       case "ClassDeclaration":
@@ -55,58 +57,146 @@ export class Linter {
 
       case "TryCatchStatement":
         this.checkTryCatch(node);
-        for (const s of node.tryBody) this.walkNode(s, parentFn);
-        for (const s of node.catchBody) this.walkNode(s, parentFn);
+        for (const s of node.tryBody) this.walkNode(s, parentFn, insideAsync);
+        for (const s of node.catchBody) this.walkNode(s, parentFn, insideAsync);
         break;
 
       case "IfStatement":
         this.checkBooleanTrap(node.condition);
-        for (const s of node.thenBranch) this.walkNode(s, parentFn);
+        this.walkNode(node.condition, parentFn, insideAsync);
+        for (const s of node.thenBranch) this.walkNode(s, parentFn, insideAsync);
         if (node.elseBranch) {
-          for (const s of node.elseBranch) this.walkNode(s, parentFn);
+          for (const s of node.elseBranch) this.walkNode(s, parentFn, insideAsync);
         }
         break;
 
       case "WhileStatement":
         this.checkBooleanTrap(node.condition);
-        for (const s of node.body) this.walkNode(s, parentFn);
+        for (const s of node.body) this.walkNode(s, parentFn, insideAsync);
         break;
 
       case "DoWhileStatement":
         this.checkBooleanTrap(node.condition);
-        for (const s of node.body) this.walkNode(s, parentFn);
+        for (const s of node.body) this.walkNode(s, parentFn, insideAsync);
         break;
 
       case "ForStatement":
-        for (const s of node.body) this.walkNode(s, parentFn);
+        for (const s of node.body) this.walkNode(s, parentFn, insideAsync);
         break;
 
       case "CForStatement":
-        if (node.init) this.walkNode(node.init, parentFn);
-        for (const s of node.body) this.walkNode(s, parentFn);
+        if (node.init) this.walkNode(node.init, parentFn, insideAsync);
+        for (const s of node.body) this.walkNode(s, parentFn, insideAsync);
         break;
 
       case "MatchStatement":
         for (const c of node.cases) {
-          for (const s of c.body) this.walkNode(s, parentFn);
+          for (const s of c.body) this.walkNode(s, parentFn, insideAsync);
         }
         break;
 
       case "ExportDeclaration":
-        this.walkNode(node.declaration, parentFn);
+        this.walkNode(node.declaration, parentFn, insideAsync);
         break;
 
       case "ExpressionStatement":
         this.checkExprStatement(node.expression, node.line ?? 0);
+        this.walkExpr(node.expression, parentFn, insideAsync);
         break;
 
       case "BinaryExpression":
         this.checkBinaryExpression(node);
         break;
+
+      case "ReturnStatement":
+        if (node.value) this.walkExpr(node.value, parentFn, insideAsync);
+        break;
+
+      case "AwaitExpression":
+        this.checkAwaitExpression(node, insideAsync);
+        this.walkExpr(node.expression, parentFn, insideAsync);
+        break;
     }
   }
 
-  private checkFunction(node: FunctionDeclaration): void {
+  private walkExpr(node: ASTNode, parentFn: FunctionDeclaration | null, insideAsync: boolean): void {
+    switch (node.type) {
+      case "AwaitExpression":
+        this.checkAwaitExpression(node, insideAsync);
+        this.walkExpr(node.expression, parentFn, insideAsync);
+        break;
+
+      case "BinaryExpression":
+        this.checkBinaryExpression(node);
+        this.walkExpr(node.left, parentFn, insideAsync);
+        this.walkExpr(node.right, parentFn, insideAsync);
+        break;
+
+      case "UnaryExpression":
+        this.walkExpr(node.operand, parentFn, insideAsync);
+        break;
+
+      case "Assignment":
+        this.walkExpr(node.target, parentFn, insideAsync);
+        this.walkExpr(node.value, parentFn, insideAsync);
+        break;
+
+      case "CompoundAssignment":
+        this.walkExpr(node.target, parentFn, insideAsync);
+        this.walkExpr(node.value, parentFn, insideAsync);
+        break;
+
+      case "PropertyAccess":
+        this.walkExpr(node.object, parentFn, insideAsync);
+        break;
+
+      case "IndexAccess":
+        this.walkExpr(node.object, parentFn, insideAsync);
+        this.walkExpr(node.index, parentFn, insideAsync);
+        break;
+
+      case "ArrayExpression":
+        for (const el of node.elements) this.walkExpr(el, parentFn, insideAsync);
+        break;
+
+      case "ObjectExpression":
+        for (const prop of node.properties) this.walkExpr(prop.value, parentFn, insideAsync);
+        break;
+
+      case "CallExpression":
+        for (const arg of node.args) this.walkExpr(arg, parentFn, insideAsync);
+        break;
+
+      case "MethodCall":
+        this.walkExpr(node.object, parentFn, insideAsync);
+        for (const arg of node.args) this.walkExpr(arg, parentFn, insideAsync);
+        break;
+
+      case "NewExpression":
+        for (const arg of node.args) this.walkExpr(arg, parentFn, insideAsync);
+        break;
+
+      case "FunctionDeclaration":
+        this.checkFunction(node, insideAsync);
+        break;
+    }
+  }
+
+  private checkAwaitExpression(node: AwaitExpression, insideAsync: boolean): void {
+    if (!insideAsync) {
+      this.report(
+        "error",
+        "E003",
+        `'await' used outside of an async function`,
+        node.line ?? 0,
+        node.col ?? 0,
+      );
+    }
+  }
+
+  private checkFunction(node: FunctionDeclaration, parentIsAsync: boolean): void {
+    const fnIsAsync = node.isAsync;
+
     if (node.body.length === 0 && node.name) {
       this.report(
         "warning",
@@ -145,7 +235,7 @@ export class Linter {
         break;
       }
       if (stmt.type === "ReturnStatement") seenReturn = true;
-      this.walkNode(stmt, node);
+      this.walkNode(stmt, node, fnIsAsync);
     }
 
     if (node.name && /^[a-z]/.test(node.name) === false && /^[A-Z]/.test(node.name)) {
@@ -182,11 +272,11 @@ export class Linter {
         );
       }
       methodNames.add(m.name);
-      this.checkFunction({ ...m, type: "FunctionDeclaration" });
+      this.checkFunction({ ...m, type: "FunctionDeclaration" }, false);
     }
 
     if (node.constructor) {
-      for (const s of node.constructor.body) this.walkNode(s, null);
+      for (const s of node.constructor.body) this.walkNode(s, null, false);
     }
   }
 

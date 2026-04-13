@@ -11,16 +11,51 @@ const TYPE_MAP: Record<string, string> = {
 };
 
 const JS_RESERVED = new Set([
-  "await", "break", "case", "catch", "class", "const", "continue", "debugger",
-  "default", "delete", "do", "else", "enum", "export", "extends", "false",
-  "finally", "for", "function", "if", "import", "in", "instanceof", "let",
-  "new", "null", "return", "super", "switch", "this", "throw", "true", "try",
-  "typeof", "var", "void", "while", "with", "yield",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "let",
+  "new",
+  "null",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
 ]);
 
 function mapType(t: string | undefined): string {
   if (!t) return "";
-  if (t.endsWith("[]")) return (TYPE_MAP[t.slice(0, -2)] ?? t.slice(0, -2)) + "[]";
+  if (t.endsWith("[]"))
+    return (TYPE_MAP[t.slice(0, -2)] ?? t.slice(0, -2)) + "[]";
   const genericIdx = t.indexOf("<");
   if (genericIdx !== -1) {
     const base = t.slice(0, genericIdx);
@@ -41,6 +76,18 @@ export class CodeGenerator {
 
   constructor(options: { emitTypes?: boolean } = {}) {
     this.emitTypes = options.emitTypes ?? true;
+
+    // FIX 1 & 3: Emit _throw helper with correct syntax for JS vs TS mode.
+    // TypeScript form uses type annotations; JavaScript form must not.
+    if (this.emitTypes) {
+      this.preambles.push(
+        `const _throw = (err: any): never => { throw err instanceof Error ? err : new Error(String(err)); };`,
+      );
+    } else {
+      this.preambles.push(
+        `const _throw = (err) => { throw err instanceof Error ? err : new Error(String(err)); };`,
+      );
+    }
   }
 
   private ind(): string {
@@ -103,12 +150,16 @@ export class CodeGenerator {
           }
           const lines: string[] = [];
           if (defaultImport) {
-            const bindName = defaultAlias ? this.safeIdent(defaultAlias) : this.safeIdent(defaultImport);
+            const bindName = defaultAlias
+              ? this.safeIdent(defaultAlias)
+              : this.safeIdent(defaultImport);
             lines.push(`const ${bindName} = ${mod.internalName};`);
           }
           if (namedImports.length > 0) {
             const named = namedImports
-              .map((n) => (n.alias ? `${n.name}: ${this.safeIdent(n.alias)}` : n.name))
+              .map((n) =>
+                n.alias ? `${n.name}: ${this.safeIdent(n.alias)}` : n.name,
+              )
               .join(", ");
             lines.push(`const { ${named} } = ${mod.internalName};`);
           }
@@ -117,12 +168,18 @@ export class CodeGenerator {
 
         const parts: string[] = [];
         if (defaultImport) {
-          const bindName = defaultAlias ? this.safeIdent(defaultAlias) : this.safeIdent(defaultImport);
+          const bindName = defaultAlias
+            ? this.safeIdent(defaultAlias)
+            : this.safeIdent(defaultImport);
           parts.push(bindName);
         }
         if (namedImports.length > 0) {
           const named = namedImports
-            .map((n) => (n.alias ? `${n.name} as ${this.safeIdent(n.alias)}` : this.safeIdent(n.name)))
+            .map((n) =>
+              n.alias
+                ? `${n.name} as ${this.safeIdent(n.alias)}`
+                : this.safeIdent(n.name),
+            )
             .join(", ");
           parts.push(`{ ${named} }`);
         }
@@ -135,7 +192,11 @@ export class CodeGenerator {
         if (inner.length === 0) return [];
         if (node.isDefault) {
           const first = inner[0].trim();
-          if (first.startsWith("function ") || first.startsWith("class ")) {
+          if (
+            first.startsWith("function ") ||
+            first.startsWith("class ") ||
+            first.startsWith("async function ")
+          ) {
             return [`export default ${first}`, ...inner.slice(1)];
           }
           return [`export default ${first}`, ...inner.slice(1)];
@@ -148,30 +209,46 @@ export class CodeGenerator {
         if (!this.emitTypes) {
           return [`// interface ${node.name}`];
         }
-        const tParams = node.typeParams && node.typeParams.length > 0
-          ? `<${node.typeParams.join(", ")}>`
-          : "";
-        const extendsStr = node.extendsInterfaces && node.extendsInterfaces.length > 0
-          ? ` extends ${node.extendsInterfaces.join(", ")}`
-          : "";
-        const lines: string[] = [`${this.ind()}interface ${node.name}${tParams}${extendsStr} {`];
+        const tParams =
+          node.typeParams && node.typeParams.length > 0
+            ? `<${node.typeParams.join(", ")}>`
+            : "";
+        const extendsStr =
+          node.extendsInterfaces && node.extendsInterfaces.length > 0
+            ? ` extends ${node.extendsInterfaces.join(", ")}`
+            : "";
+        const lines: string[] = [
+          `${this.ind()}interface ${node.name}${tParams}${extendsStr} {`,
+        ];
         this.indentLevel++;
         for (const prop of node.properties) {
           const readonlyPart = prop.readonly ? "readonly " : "";
           const optPart = prop.optional ? "?" : "";
-          const typePart = prop.typeAnnotation ? `: ${mapType(prop.typeAnnotation)}` : ": any";
-          lines.push(`${this.ind()}${readonlyPart}${prop.name}${optPart}${typePart};`);
+          const typePart = prop.typeAnnotation
+            ? `: ${mapType(prop.typeAnnotation)}`
+            : ": any";
+          lines.push(
+            `${this.ind()}${readonlyPart}${prop.name}${optPart}${typePart};`,
+          );
         }
         for (const method of node.methods) {
-          const tP = method.typeParams && method.typeParams.length > 0
-            ? `<${method.typeParams.join(", ")}>`
-            : "";
+          const tP =
+            method.typeParams && method.typeParams.length > 0
+              ? `<${method.typeParams.join(", ")}>`
+              : "";
           const optPart = method.optional ? "?" : "";
           const paramStr = method.params
-            .map((p) => `${this.safeIdent(p.name)}${p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : ""}`)
+            .map(
+              (p) =>
+                `${this.safeIdent(p.name)}${p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : ""}`,
+            )
             .join(", ");
-          const retStr = method.returnType ? `: ${mapType(method.returnType)}` : ": void";
-          lines.push(`${this.ind()}${method.name}${optPart}${tP}(${paramStr})${retStr};`);
+          const retStr = method.returnType
+            ? `: ${mapType(method.returnType)}`
+            : ": void";
+          lines.push(
+            `${this.ind()}${method.name}${optPart}${tP}(${paramStr})${retStr};`,
+          );
         }
         this.indentLevel--;
         lines.push(`${this.ind()}}`);
@@ -179,7 +256,9 @@ export class CodeGenerator {
       }
 
       case "DoWhileStatement": {
-        const body = this.block(() => node.body.flatMap((s) => this.genNode(s)));
+        const body = this.block(() =>
+          node.body.flatMap((s) => this.genNode(s)),
+        );
         return [
           `${this.ind()}do {`,
           ...body,
@@ -201,7 +280,9 @@ export class CodeGenerator {
         }
         const condPart = node.condition ? this.genExpr(node.condition) : "";
         const incPart = node.increment ? this.genExpr(node.increment) : "";
-        const body = this.block(() => node.body.flatMap((s) => this.genNode(s)));
+        const body = this.block(() =>
+          node.body.flatMap((s) => this.genNode(s)),
+        );
         return [
           `${this.ind()}for (${initPart}; ${condPart}; ${incPart}) {`,
           ...body,
@@ -212,23 +293,39 @@ export class CodeGenerator {
       case "VariableDeclaration": {
         const kw = node.isMutable ? "let" : "const";
         const name = this.safeIdent(node.name);
-        const typePart = this.emitTypes && node.typeAnnotation
-          ? `: ${mapType(node.typeAnnotation)}`
+        const typePart =
+          this.emitTypes && node.typeAnnotation
+            ? `: ${mapType(node.typeAnnotation)}`
+            : "";
+        const initPart = node.initializer
+          ? ` = ${this.genExpr(node.initializer)}`
           : "";
-        const initPart = node.initializer ? ` = ${this.genExpr(node.initializer)}` : "";
         return [`${this.ind()}${kw} ${name}${typePart}${initPart};`];
       }
 
       case "FunctionDeclaration": {
         if (!node.name) {
+          // Anonymous function used as a statement — emit as arrow function block.
           return this.genAnonFnLines(node);
         }
-        const tParams = this.emitTypes && node.typeParams && node.typeParams.length > 0
-          ? `<${node.typeParams.join(", ")}>`
-          : "";
-        const sig = this.buildFnSignature(node.name, node.params, node.returnType);
-        const body = this.block(() => node.body.flatMap((s) => this.genNode(s)));
-        return [`${this.ind()}function ${node.name}${tParams}${sig.slice(node.name.length)} {`, ...body, `${this.ind()}}`];
+        const asyncPrefix = node.isAsync ? "async " : "";
+        const tParams =
+          this.emitTypes && node.typeParams && node.typeParams.length > 0
+            ? `<${node.typeParams.join(", ")}>`
+            : "";
+        const sig = this.buildFnSignature(
+          node.name,
+          node.params,
+          node.returnType,
+        );
+        const body = this.block(() =>
+          node.body.flatMap((s) => this.genNode(s)),
+        );
+        return [
+          `${this.ind()}${asyncPrefix}function ${node.name}${tParams}${sig.slice(node.name.length)} {`,
+          ...body,
+          `${this.ind()}}`,
+        ];
       }
 
       case "EnumDeclaration": {
@@ -240,7 +337,10 @@ export class CodeGenerator {
           if (member.initializer) {
             const val = this.genExpr(member.initializer);
             pairs.push(`"${member.name}": ${val}`);
-            if (member.initializer.type === "NumberLiteral" && typeof member.initializer.value === "number") {
+            if (
+              member.initializer.type === "NumberLiteral" &&
+              typeof member.initializer.value === "number"
+            ) {
               autoValue = member.initializer.value + 1;
             } else {
               autoValue++;
@@ -252,7 +352,9 @@ export class CodeGenerator {
         }
 
         const closingSuffix = this.emitTypes ? " as const;" : ";";
-        lines.push(`${this.ind()}const ${this.safeIdent(node.name)} = Object.freeze({`);
+        lines.push(
+          `${this.ind()}const ${this.safeIdent(node.name)} = Object.freeze({`,
+        );
         for (const pair of pairs) {
           lines.push(`${this.ind()}  ${pair},`);
         }
@@ -261,24 +363,46 @@ export class CodeGenerator {
       }
 
       case "ClassDeclaration": {
-        const tParams = this.emitTypes && node.typeParams && node.typeParams.length > 0
-          ? `<${node.typeParams.join(", ")}>`
+        const tParams =
+          this.emitTypes && node.typeParams && node.typeParams.length > 0
+            ? `<${node.typeParams.join(", ")}>`
+            : "";
+        const extendsStr = node.extendsClass
+          ? ` extends ${this.safeIdent(node.extendsClass)}`
           : "";
-        const extendsStr = node.extendsClass ? ` extends ${this.safeIdent(node.extendsClass)}` : "";
-        const implStr = this.emitTypes && node.implementsInterfaces && node.implementsInterfaces.length > 0
-          ? ` implements ${node.implementsInterfaces.join(", ")}`
-          : "";
-        const lines: string[] = [`${this.ind()}class ${this.safeIdent(node.name)}${tParams}${extendsStr}${implStr} {`];
+        const implStr =
+          this.emitTypes &&
+          node.implementsInterfaces &&
+          node.implementsInterfaces.length > 0
+            ? ` implements ${node.implementsInterfaces.join(", ")}`
+            : "";
+        const lines: string[] = [
+          `${this.ind()}class ${this.safeIdent(node.name)}${tParams}${extendsStr}${implStr} {`,
+        ];
         this.indentLevel++;
 
         for (const prop of node.properties) {
-          const visPart = this.emitTypes ? (prop.visibility === "priv" ? "private " : "public ") : "";
-          const typePart = this.emitTypes && prop.typeAnnotation ? `: ${mapType(prop.typeAnnotation)}` : "";
-          const initPart = prop.initializer ? ` = ${this.genExpr(prop.initializer)}` : "";
-          lines.push(`${this.ind()}${visPart}${this.safeIdent(prop.name)}${typePart}${initPart};`);
+          const visPart = this.emitTypes
+            ? prop.visibility === "priv"
+              ? "private "
+              : "public "
+            : "";
+          const typePart =
+            this.emitTypes && prop.typeAnnotation
+              ? `: ${mapType(prop.typeAnnotation)}`
+              : "";
+          const initPart = prop.initializer
+            ? ` = ${this.genExpr(prop.initializer)}`
+            : "";
+          lines.push(
+            `${this.ind()}${visPart}${this.safeIdent(prop.name)}${typePart}${initPart};`,
+          );
         }
 
-        if (node.properties.length > 0 && (node.constructor || node.methods.length > 0)) {
+        if (
+          node.properties.length > 0 &&
+          (node.constructor || node.methods.length > 0)
+        ) {
           lines.push("");
         }
 
@@ -286,27 +410,46 @@ export class CodeGenerator {
           const ctor = node.constructor;
           const paramStr = ctor.params
             .map((p) => {
-              const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : "";
+              const t =
+                this.emitTypes && p.typeAnnotation
+                  ? `: ${mapType(p.typeAnnotation)}`
+                  : "";
               return `${this.safeIdent(p.name)}${t}`;
             })
             .join(", ");
           lines.push(`${this.ind()}constructor(${paramStr}) {`);
-          const ctorBody = this.block(() => ctor.body.flatMap((s) => this.genNode(s)));
+          const ctorBody = this.block(() =>
+            ctor.body.flatMap((s) => this.genNode(s)),
+          );
           lines.push(...ctorBody);
           lines.push(`${this.ind()}}`);
           if (node.methods.length > 0) lines.push("");
         }
 
         for (const method of node.methods) {
-          const visPart = this.emitTypes ? (method.visibility === "priv" ? "private " : "public ") : "";
-          const staticPart = method.isStatic ? "static " : "";
-          const mTParams = this.emitTypes && method.typeParams && method.typeParams.length > 0
-            ? `<${method.typeParams.join(", ")}>`
+          const visPart = this.emitTypes
+            ? method.visibility === "priv"
+              ? "private "
+              : "public "
             : "";
-          const sig = this.buildFnSignature(method.name, method.params, method.returnType);
+          const staticPart = method.isStatic ? "static " : "";
+          const asyncPart = method.isAsync ? "async " : "";
+          const mTParams =
+            this.emitTypes && method.typeParams && method.typeParams.length > 0
+              ? `<${method.typeParams.join(", ")}>`
+              : "";
+          const sig = this.buildFnSignature(
+            method.name,
+            method.params,
+            method.returnType,
+          );
           const sigWithGenerics = `${method.name}${mTParams}${sig.slice(method.name.length)}`;
-          const body = this.block(() => method.body.flatMap((s) => this.genNode(s)));
-          lines.push(`${this.ind()}${visPart}${staticPart}${sigWithGenerics} {`);
+          const body = this.block(() =>
+            method.body.flatMap((s) => this.genNode(s)),
+          );
+          lines.push(
+            `${this.ind()}${visPart}${staticPart}${asyncPart}${sigWithGenerics} {`,
+          );
           lines.push(...body);
           lines.push(`${this.ind()}}`);
           lines.push("");
@@ -319,16 +462,28 @@ export class CodeGenerator {
 
       case "IfStatement": {
         const cond = this.genExpr(node.condition);
-        const thenLines = this.block(() => node.thenBranch.flatMap((s) => this.genNode(s)));
-        const result = [`${this.ind()}if (${cond}) {`, ...thenLines, `${this.ind()}}`];
+        const thenLines = this.block(() =>
+          node.thenBranch.flatMap((s) => this.genNode(s)),
+        );
+        const result = [
+          `${this.ind()}if (${cond}) {`,
+          ...thenLines,
+          `${this.ind()}}`,
+        ];
 
         if (node.elseBranch) {
-          if (node.elseBranch.length === 1 && node.elseBranch[0].type === "IfStatement") {
+          if (
+            node.elseBranch.length === 1 &&
+            node.elseBranch[0].type === "IfStatement"
+          ) {
             const inner = this.genNode(node.elseBranch[0]);
-            result[result.length - 1] = result[result.length - 1] + " else " + inner[0].trimStart();
+            result[result.length - 1] =
+              result[result.length - 1] + " else " + inner[0].trimStart();
             result.push(...inner.slice(1));
           } else {
-            const elseLines = this.block(() => node.elseBranch!.flatMap((s) => this.genNode(s)));
+            const elseLines = this.block(() =>
+              node.elseBranch!.flatMap((s) => this.genNode(s)),
+            );
             result[result.length - 1] += " else {";
             result.push(...elseLines, `${this.ind()}}`);
           }
@@ -338,11 +493,16 @@ export class CodeGenerator {
       }
 
       case "MatchStatement": {
-        const lines: string[] = [`${this.ind()}switch (${this.genExpr(node.expression)}) {`];
+        const lines: string[] = [
+          `${this.ind()}switch (${this.genExpr(node.expression)}) {`,
+        ];
         this.indentLevel++;
 
         for (const c of node.cases) {
-          const label = c.pattern === "default" ? "default:" : `case ${this.genPattern(c.pattern)}:`;
+          const label =
+            c.pattern === "default"
+              ? "default:"
+              : `case ${this.genPattern(c.pattern)}:`;
           lines.push(`${this.ind()}${label} {`);
           const body = this.block(() => c.body.flatMap((s) => this.genNode(s)));
           lines.push(...body);
@@ -357,7 +517,9 @@ export class CodeGenerator {
 
       case "ForStatement": {
         const iter = this.genExpr(node.iterable);
-        const body = this.block(() => node.body.flatMap((s) => this.genNode(s)));
+        const body = this.block(() =>
+          node.body.flatMap((s) => this.genNode(s)),
+        );
         return [
           `${this.ind()}for (const ${this.safeIdent(node.variable)} of ${iter}) {`,
           ...body,
@@ -367,19 +529,29 @@ export class CodeGenerator {
 
       case "WhileStatement": {
         const cond = this.genExpr(node.condition);
-        const body = this.block(() => node.body.flatMap((s) => this.genNode(s)));
+        const body = this.block(() =>
+          node.body.flatMap((s) => this.genNode(s)),
+        );
         return [`${this.ind()}while (${cond}) {`, ...body, `${this.ind()}}`];
       }
 
       case "ReturnStatement":
-        return [`${this.ind()}return${node.value ? " " + this.genExpr(node.value) : ""};`];
+        return [
+          `${this.ind()}return${node.value ? " " + this.genExpr(node.value) : ""};`,
+        ];
 
       case "ThrowStatement":
-        return [`${this.ind()}throw new Error(${this.genExpr(node.expression)});`];
+        return [
+          `${this.ind()}_throw(${this.genExpr(node.expression)});`,
+        ];
 
       case "TryCatchStatement": {
-        const tryLines = this.block(() => node.tryBody.flatMap((s) => this.genNode(s)));
-        const catchLines = this.block(() => node.catchBody.flatMap((s) => this.genNode(s)));
+        const tryLines = this.block(() =>
+          (node.tryBody ?? []).flatMap((s) => this.genNode(s)),
+        );
+        const catchLines = this.block(() =>
+          (node.catchBody ?? []).flatMap((s) => this.genNode(s)),
+        );
         return [
           `${this.ind()}try {`,
           ...tryLines,
@@ -404,14 +576,19 @@ export class CodeGenerator {
   }
 
   private genAnonFnLines(node: FunctionDeclaration): string[] {
+    const asyncPrefix = node.isAsync ? "async " : "";
     const paramStr = node.params
       .map((p) => {
-        const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : "";
+        const t =
+          this.emitTypes && p.typeAnnotation
+            ? `: ${mapType(p.typeAnnotation)}`
+            : "";
         return `${this.safeIdent(p.name)}${t}`;
       })
       .join(", ");
-    const retStr = this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : "";
-    const header = `${this.ind()}(${paramStr})${retStr} => {`;
+    const retStr =
+      this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : "";
+    const header = `${this.ind()}${asyncPrefix}(${paramStr})${retStr} => {`;
     const body = this.block(() => node.body.flatMap((s) => this.genNode(s)));
     return [header, ...body, `${this.ind()}}`];
   }
@@ -423,11 +600,15 @@ export class CodeGenerator {
   ): string {
     const paramStr = params
       .map((p) => {
-        const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : "";
+        const t =
+          this.emitTypes && p.typeAnnotation
+            ? `: ${mapType(p.typeAnnotation)}`
+            : "";
         return `${this.safeIdent(p.name)}${t}`;
       })
       .join(", ");
-    const retStr = this.emitTypes && returnType ? `: ${mapType(returnType)}` : "";
+    const retStr =
+      this.emitTypes && returnType ? `: ${mapType(returnType)}` : "";
     return `${this.safeIdent(name)}(${paramStr})${retStr}`;
   }
 
@@ -454,9 +635,14 @@ export class CodeGenerator {
       case "NullLiteral":
         return "null";
 
+      case "AwaitExpression":
+        return `await ${this.genExpr(node.expression)}`;
+
       case "BinaryExpression":
-        if (node.operator === "**") return `Math.pow(${this.genExpr(node.left)}, ${this.genExpr(node.right)})`;
-        if (node.operator === "%") return `${this.genExpr(node.left)} % ${this.genExpr(node.right)}`;
+        if (node.operator === "**")
+          return `Math.pow(${this.genExpr(node.left)}, ${this.genExpr(node.right)})`;
+        if (node.operator === "%")
+          return `${this.genExpr(node.left)} % ${this.genExpr(node.right)}`;
         return `${this.genExpr(node.left)} ${node.operator} ${this.genExpr(node.right)}`;
 
       case "UnaryExpression":
@@ -487,22 +673,35 @@ export class CodeGenerator {
         return `${this.genExpr(node.object)}.${node.method}(${this.genArgExprs(node.args)})`;
 
       case "CallExpression": {
-        if (node.callee === "log") return `console.log(${this.genArgExprs(node.args)})`;
-        if (node.callee === "panic") return `(() => { throw new Error(${this.genArgExprs(node.args)}); })()`;
-        if (node.callee === "typeOf") return `typeof ${this.genExpr(node.args[0])}`;
+        if (node.callee === "log")
+          return `console.log(${this.genArgExprs(node.args)})`;
+        if (node.callee === "panic")
+          return `(() => { throw new Error(${this.genArgExprs(node.args)}); })()`;
+        if (node.callee === "typeOf")
+          return `typeof ${this.genExpr(node.args[0])}`;
         return `${this.safeIdent(node.callee)}(${this.genArgExprs(node.args)})`;
       }
 
       case "FunctionDeclaration": {
+        const asyncPrefix = node.isAsync ? "async " : "";
         const paramStr = node.params
           .map((p) => {
-            const t = this.emitTypes && p.typeAnnotation ? `: ${mapType(p.typeAnnotation)}` : "";
+            const t =
+              this.emitTypes && p.typeAnnotation
+                ? `: ${mapType(p.typeAnnotation)}`
+                : "";
             return `${this.safeIdent(p.name)}${t}`;
           })
           .join(", ");
-        const retStr = this.emitTypes && node.returnType ? `: ${mapType(node.returnType)}` : "";
-        const bodyStatements = node.body.map((s) => this.genNode(s).join(" ").trim()).join(" ");
-        return `(${paramStr})${retStr} => { ${bodyStatements} }`;
+        const retStr =
+          this.emitTypes && node.returnType
+            ? `: ${mapType(node.returnType)}`
+            : "";
+
+        const bodyStatements = node.body
+          .map((s) => this.genNode(s).join(" ").trim())
+          .join(" ");
+        return `${asyncPrefix}(${paramStr})${retStr} => { ${bodyStatements} }`;
       }
 
       default:
